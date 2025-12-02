@@ -23,7 +23,7 @@ Provides chat functionality, embedding/vector search, service management, and do
 ---
 
 ## 📂 Project Structure
-
+```
 project/
 │
 ├── server.js
