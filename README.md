@@ -47,6 +47,7 @@ project/
 │
 ├── uploads/ # Temp upload folder
 └── .env
+```
 
 ---
 
@@ -83,25 +84,25 @@ AZURE_STORAGE_ACCOUNT=
 AZURE_STORAGE_CONTAINER=
 AZURE_STORAGE_CONNECTION_STRING=
 AZURE_STORAGE_USE_MI=false
-
+```
 ---
 
 ## 🛠 Installation
 
 ```bash
 npm install
-
+```
 ---
 
 ## ▶️ Run the Server
 
 ```bash
 npm start
-
+```
 For development with auto-restart:
 ```bash
 npm run dev
-
+```
 ---
 
 ## 🧪 API Endpoints
@@ -122,7 +123,7 @@ Example request body:
   "question": "What is frequency 101.1 Hz for?",
   "username": "testUser"
 }
-
+```
 ### GET `/api/test-db`
 
 Test SQL connectivity.
@@ -145,7 +146,7 @@ Upload a PDF → stored to Azure Blob Storage.
 service_id (int)
 service_name (varchar)
 submodules (nvarchar(max))
-
+```
 `service_documents`
 
 ```sql
@@ -157,7 +158,7 @@ page_from_inclusive (int)
 page_to_inclusive (int)
 page_to_skip (nvarchar(max))
 deleted_date (datetime, nullable)
-
+```
 `chat_logs`
 
 ```sql
@@ -168,7 +169,7 @@ submodule (varchar)
 question (nvarchar(max))
 answer (nvarchar(max))
 created_date (datetime)
-
+```
 ---
 
 ## 📄 PDF Extraction Logic
@@ -188,7 +189,7 @@ client.chat.completions.create({
   model: config.openai.deployment,
   messages: [...]
 })
-
+```
 > Response is logged into chat_logs.
 
 ---
@@ -226,7 +227,7 @@ Some PDFs store text as images → OCR module may be needed.
 
 ```json
 https://<account>.blob.core.windows.net/documents/manual.pdf
-
+```
 ---
 
 ## 📜 License
