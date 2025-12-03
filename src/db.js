@@ -5,21 +5,18 @@ let pool;
 
 // Build config based on environment
 function getDbConfig() {
-  // PRIORITY 1 — production connection string
   if (config.sql.connectionString) {
-    return {
+    // PRIORITY 1 — production connection string
+    const dbConfig = {
       connectionString: config.sql.connectionString,
       options: { encrypt: true },
-      pool: {
-        max: 10,
-        min: 0,
-        idleTimeoutMillis: 30000
-      }
+      pool: { max: 10, min: 0, idleTimeoutMillis: 30000 }
     };
+    console.log("🟦 Final SQL config sent to mssql:", JSON.stringify(dbConfig, null, 2));
+    return dbConfig;
   }
-
   // PRIORITY 2 — local config with username/password
-  return {
+  const dbConfig = {
     user: config.sql.user,
     password: config.sql.pass,
     server: config.sql.server,
@@ -34,6 +31,8 @@ function getDbConfig() {
       idleTimeoutMillis: 30000
     }
   };
+  console.log("🟦 Final SQL config sent to mssql:", JSON.stringify(dbConfig, null, 2));
+  return dbConfig;
 }
 
 // Main query function
