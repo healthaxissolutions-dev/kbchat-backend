@@ -9,19 +9,7 @@ function getDbConfig() {
     // Azure App Service + mssql + tedious compatibility
     console.log("🟦 Using connection string mode");
 
-    return {
-      server: undefined, // <-- prevent tedious from requiring "server"
-      options: {
-        encrypt: true,
-        trustServerCertificate: false,
-        connectionString: config.sql.connectionString
-      },
-      pool: {
-        max: 10,
-        min: 0,
-        idleTimeoutMillis: 30000
-      }
-    };
+    return config.sql.connectionString;
   }
   // PRIORITY 2 — local config with username/password
   return {
