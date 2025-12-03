@@ -28,7 +28,10 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
 
       - name: Install Dependencies
-        run: npm ci
+        run: npm install --production
+      
+      - name: Zip artifact
+        run: zip -r release.zip .
 
       - name: Login to Azure using OIDC
         uses: azure/login@v2
@@ -41,4 +44,4 @@ jobs:
         uses: azure/webapps-deploy@v3
         with:
           app-name: ${{ env.AZURE_WEBAPP_NAME }}
-          package: .
+          package: release.zip
