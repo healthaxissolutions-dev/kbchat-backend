@@ -20,10 +20,10 @@ export const config = {
     connectionString: process.env.SQL_CONNECTION_STRING || null,
 
     // PRIORITY 2: Manual credentials (dev)
-    server: required("DB_SERVER"),
-    name: required("DB_NAME"),
-    user: required("DB_USER"),
-    pass: required("DB_PASS"),
+    server: process.env.SQL_CONNECTION_STRING ? null : required("DB_SERVER"),
+    name: process.env.SQL_CONNECTION_STRING ? null : required("DB_NAME"),
+    user: process.env.SQL_CONNECTION_STRING ? null : required("DB_USER"),
+    pass: process.env.SQL_CONNECTION_STRING ? null : required("DB_PASS"),
     encrypt: process.env.DB_ENCRYPT === "true",
   },
 
