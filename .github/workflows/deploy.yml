@@ -1,0 +1,92 @@
+name: Deploy Backend to Azure
+
+on:
+  push:
+    branches:
+      - release
+      - main
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  NODE_VERSION: '20'
+
+jobs:
+  deploy-dev:
+    name: Deploy to Azure Dev
+    if: github.ref == 'refs/heads/release'
+    runs-on: ubuntu-latest
+    environment: dev
+
+    env:
+      AZURE_WEBAPP_NAME: web-kbchat-backend-ha-dev
+      AZURE_RESOURCE_GROUP: rg-kbchat-ha-dev
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install dependencies
+        run: npm install --production
+
+      - name: Zip artifact
+        run: zip -r release.zip .
+
+      - name: Login to Azure (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Deploy to Azure Web App (Dev)
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: ${{ env.AZURE_WEBAPP_NAME }}
+          package: release.zip
+
+
+  deploy-prod:
+    name: Deploy to Azure Prod
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: prod
+
+    env:
+      AZURE_WEBAPP_NAME: web-kbchat-backend-ha-prod
+      AZURE_RESOURCE_GROUP: rg-kbchat-ha-prod
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install dependencies
+        run: npm install --production
+
+      - name: Zip artifact
+        run: zip -r release.zip .
+
+      - name: Login to Azure (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Deploy to Azure Web App (Prod)
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: ${{ env.AZURE_WEBAPP_NAME }}
+          package: release.zip
