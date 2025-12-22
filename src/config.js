@@ -25,6 +25,7 @@ export const config = {
     user: process.env.DB_USER,
     pass: process.env.DB_PASS,
     encrypt: process.env.DB_ENCRYPT === "true",
+    auth: process.env.DB_AUTH, // "sql" | "managed_identity"
   },
 
   search: {

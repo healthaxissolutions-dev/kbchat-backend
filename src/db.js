@@ -1,17 +1,40 @@
 import sql from "mssql";
-import { config } from "./config.js"; // <-- now using centralized config
+import { config } from "./config.js";
 
 let pool;
 
 // Build config based on environment
 function getDbConfig() {
-  if (config.sql.connectionString) {
-    // Azure App Service + mssql + tedious compatibility
-    console.log("🟦 Using connection string mode");
+  // ✅ PRIORITY 1 — Azure Managed Identity (App Service)
+  if (config.sql.auth === "managed_identity") {
+    console.log("🟩 Using Azure Managed Identity for SQL");
 
+    return {
+      server: config.sql.server,
+      database: config.sql.name,
+      options: {
+        encrypt: true
+      },
+      authentication: {
+        type: "azure-active-directory-managed-identity"
+      },
+      pool: {
+        max: 10,
+        min: 0,
+        idleTimeoutMillis: 30000
+      }
+    };
+  }
+
+  // ✅ PRIORITY 2 — Full connection string
+  if (config.sql.connectionString) {
+    console.log("🟦 Using SQL connection string mode");
     return config.sql.connectionString;
   }
-  // PRIORITY 2 — local config with username/password
+
+  // ✅ PRIORITY 3 — Local SQL username/password
+  console.log("🟨 Using SQL username/password mode");
+
   return {
     user: config.sql.user,
     password: config.sql.pass,
