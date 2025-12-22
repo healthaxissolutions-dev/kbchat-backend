@@ -34,10 +34,10 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
 
       - name: Install dependencies
-        run: npm install --production
+        run: npm ci --omit=dev
 
       - name: Zip artifact
-        run: zip -r release.zip .
+        run: zip -r release.zip . -x "*.git*"
 
       - name: Login to Azure (OIDC)
         uses: azure/login@v2
@@ -73,10 +73,10 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
 
       - name: Install dependencies
-        run: npm install --production
+        run: npm ci --omit=dev
 
       - name: Zip artifact
-        run: zip -r release.zip .
+        run: zip -r release.zip . -x "*.git*"
 
       - name: Login to Azure (OIDC)
         uses: azure/login@v2
