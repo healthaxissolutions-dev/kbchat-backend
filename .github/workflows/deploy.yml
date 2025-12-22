@@ -21,7 +21,7 @@ jobs:
     environment: dev
 
     env:
-      AZURE_WEBAPP_NAME: web-kbchat-backend-ha-dev
+      AZURE_WEBAPP_NAME: web-kbchat-backend-ha
       AZURE_RESOURCE_GROUP: rg-kbchat-ha-dev
 
     steps:
@@ -60,7 +60,7 @@ jobs:
     environment: prod
 
     env:
-      AZURE_WEBAPP_NAME: web-kbchat-backend-ha-prod
+      AZURE_WEBAPP_NAME: kbchat-ha-prod-web
       AZURE_RESOURCE_GROUP: rg-kbchat-ha-prod
 
     steps:
