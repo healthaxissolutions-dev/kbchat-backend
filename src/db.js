@@ -16,7 +16,7 @@ function getDbConfig() {
         encrypt: true
       },
       authentication: {
-        type: "azure-active-directory-managed-identity"
+        type: "azure-active-directory-default"
       },
       pool: {
         max: 10,
