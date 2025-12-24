@@ -2,7 +2,8 @@ import express from "express";
 import cors from "cors";
 
 import chatRoute from "./src/routes/chat.js";
-import adminServicesRouter from "./src/routes/admin/services.js";
+import adminServicesRoute from "./src/routes/admin/services.js";
+import adminDocumentsRoute from "./src/routes/admin/documents.js";
 import testBackendRoute from "./src/routes/test/testBackend.js";
 import testDBRoute from "./src/routes/test/testDB.js";
 
@@ -17,9 +18,10 @@ app.use(express.json());
 
 // Routes
 app.use("/api/chat", chatRoute);
+app.use("/api/admin/services", adminServicesRoute);
+app.use("/api/admin/documents", adminDocumentsRoute);
 app.use("/api/test-backend", testBackendRoute);
 app.use("/api/test-db", testDBRoute);
-app.use("/api/admin/services", adminServicesRouter);
 
 // Server port comes from config.js now
 const PORT = config.server.port;
