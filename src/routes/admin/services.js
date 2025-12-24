@@ -44,9 +44,14 @@ router.get("/", async (req, res) => {
  */
 router.post("/", async (req, res) => {
   const { service_name, submodules } = req.body;
+  const normalizedName = service_name.trim().toLowerCase();
 
-  if (!service_name) {
+  if (!normalizedName) {
     return res.status(400).json({ error: "service_name is required" });
+  }
+
+  if (submodules && !Array.isArray(submodules)) {
+    return res.status(400).json({ error: "submodules must be an array" });
   }
 
   const exists = await queryDb(
@@ -56,7 +61,7 @@ router.post("/", async (req, res) => {
     WHERE service_name = ?
       AND deleted_date IS NULL
     `,
-    [service_name]
+    [normalizedName]
   );
 
   if (exists.recordset.length > 0) {
@@ -73,7 +78,7 @@ router.post("/", async (req, res) => {
         (?, ?, GETDATE())
       `,
       [
-        service_name,
+        normalizedName,
         submodules ? JSON.stringify(submodules) : JSON.stringify([])
       ]
     );
