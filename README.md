@@ -20,6 +20,10 @@ Provides chat functionality, embedding/vector search, service management, and do
 - File upload + blob storage upload (in development)
 - Modular route structure
 
+**Upcoming**
+- Add admin auth middleware
+- Frontend implementation (users - chat, admin - documents/services management)
+
 ---
 
 ## 📂 Project Structure

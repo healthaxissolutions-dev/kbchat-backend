@@ -2,7 +2,8 @@ import express from "express";
 import cors from "cors";
 
 import chatRoute from "./src/routes/chat.js";
-import servicesRoute from "./src/routes/services.js";
+import adminServicesRoute from "./src/routes/admin/services.js";
+import adminDocumentsRoute from "./src/routes/admin/documents.js";
 import testBackendRoute from "./src/routes/test/testBackend.js";
 import testDBRoute from "./src/routes/test/testDB.js";
 
@@ -17,7 +18,8 @@ app.use(express.json());
 
 // Routes
 app.use("/api/chat", chatRoute);
-app.use("/api/services", servicesRoute);
+app.use("/api/admin/services", adminServicesRoute);
+app.use("/api/admin/documents", adminDocumentsRoute);
 app.use("/api/test-backend", testBackendRoute);
 app.use("/api/test-db", testDBRoute);
 
