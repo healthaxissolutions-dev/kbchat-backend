@@ -5,8 +5,8 @@ import { DefaultAzureCredential } from "@azure/identity";
 import { config } from "../config.js";
 
 function createOpenAIClient() {
-  const baseURL = `${config.openai.endpoint}/openai/deployments/${config.openai.deployment}`;
-  const apiVersion = "2024-07-18-preview";
+  const baseURL = `${config.openai.endpoint}/openai/deployments`;
+  const apiVersion = "2024-02-15-preview";
 
   // 🔐 PROD → Managed Identity
   if (config.server.env === "production") {
@@ -15,23 +15,29 @@ function createOpenAIClient() {
     const credential = new DefaultAzureCredential();
 
     return new OpenAI({
-      // ❗ REQUIRED to bypass SDK constructor check
-      apiKey: "DUMMY_KEY_NOT_USED",
-
       baseURL,
       defaultQuery: { "api-version": apiVersion },
 
-      // ✅ ACTUAL auth used
-      azureADTokenProvider: async () => {
+      // Required by SDK constructor
+      apiKey: "managed-identity",
+
+      fetch: async (url, options = {}) => {
         const token = await credential.getToken(
           "https://cognitiveservices.azure.com/.default"
         );
-        return token.token;
+
+        options.headers = {
+          ...options.headers,
+          Authorization: `Bearer ${token.token}`,
+          "Content-Type": "application/json"
+        };
+
+        return fetch(url, options);
       }
     });
   }
 
-  // 🔑 DEV / LOCAL → API Key
+  // 🔑 DEV → API Key
   console.log("🔑 Using API key for Azure OpenAI (dev)");
 
   return new OpenAI({
