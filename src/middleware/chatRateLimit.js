@@ -1,21 +1,13 @@
 // src/middleware/chatRateLimit.js
 
-import rateLimit from "express-rate-limit";
+import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 
 export const chatRateLimit = rateLimit({
   windowMs: 60 * 1000, // 1 minute
-  max: 5, // 5 requests per minute
+  max: 5,
   standardHeaders: true,
   legacyHeaders: false,
 
-  keyGenerator: (req) => {
-    return req.body?.username || req.ip;
-  },
-
-  handler: (req, res) => {
-    res.status(429).json({
-      error: "Too many requests",
-      detail: "Please wait a moment before sending another question.",
-    });
-  },
+  // ✅ FIX: IPv4 + IPv6 safe
+  keyGenerator: (req) => ipKeyGenerator(req)
 });
