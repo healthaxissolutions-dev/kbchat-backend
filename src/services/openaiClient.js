@@ -8,17 +8,20 @@ function createOpenAIClient() {
   const baseURL = `${config.openai.endpoint}/openai/deployments/${config.openai.deployment}`;
   const apiVersion = "2024-02-15-preview";
 
-  // 🔐 PROD → Managed Identity (Azure AD)
+  // 🔐 PROD → Managed Identity
   if (config.server.env === "production") {
     console.log("🔐 Using Managed Identity for Azure OpenAI");
 
     const credential = new DefaultAzureCredential();
 
     return new OpenAI({
+      // ❗ REQUIRED to bypass SDK constructor check
+      apiKey: "DUMMY_KEY_NOT_USED",
+
       baseURL,
       defaultQuery: { "api-version": apiVersion },
 
-      // ✅ OFFICIAL Azure AD support
+      // ✅ ACTUAL auth used
       azureADTokenProvider: async () => {
         const token = await credential.getToken(
           "https://cognitiveservices.azure.com/.default"
