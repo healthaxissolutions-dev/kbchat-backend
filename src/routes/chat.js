@@ -19,10 +19,25 @@ const router = express.Router();
 /* ---------------------------------------
    Azure OpenAI Client
 ---------------------------------------- */
+const credential = new DefaultAzureCredential();
+
 const client = new OpenAI({
-  apiKey: config.openai.key,
   baseURL: `${config.openai.endpoint}/openai/deployments/${config.openai.deployment}`,
-  defaultQuery: { "api-version": "2024-02-15-preview" }
+  defaultQuery: { "api-version": "2024-02-15-preview" },
+  apiKey: undefined,
+  fetch: async (url, options = {}) => {
+    const token = await credential.getToken(
+      "https://cognitiveservices.azure.com/.default"
+    );
+
+    options.headers = {
+      ...options.headers,
+      Authorization: `Bearer ${token.token}`,
+      "Content-Type": "application/json"
+    };
+
+    return fetch(url, options);
+  }
 });
 
 /* ---------------------------------------
