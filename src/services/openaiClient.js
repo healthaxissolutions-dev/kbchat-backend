@@ -5,18 +5,12 @@ import { DefaultAzureCredential } from "@azure/identity";
 import { config } from "../config.js";
 
 function createOpenAIClient() {
-  const baseURL = `${config.openai.endpoint}/openai/deployments`;
   const apiVersion = "2024-02-15-preview";
+  const baseURL = config.openai.endpoint;
 
-  // 🔐 PROD → Managed Identity
+  // 🔹 PROD → Managed Identity
   if (config.server.env === "production") {
     console.log("🔐 Using Managed Identity for Azure OpenAI");
-
-    console.log("🧠 Azure OpenAI Runtime Config", {
-        endpoint: config.openai.endpoint,
-        deployment: config.openai.deployment,
-        env: config.server.env
-    });
 
     const credential = new DefaultAzureCredential();
 
@@ -35,21 +29,21 @@ function createOpenAIClient() {
         options.headers = {
           ...options.headers,
           Authorization: `Bearer ${token.token}`,
-          "Content-Type": "application/json"
+          "Content-Type": "application/json",
         };
 
         return fetch(url, options);
-      }
+      },
     });
   }
 
-  // 🔑 DEV → API Key
+  // 🔹 DEV / LOCAL → API key
   console.log("🔑 Using API key for Azure OpenAI (dev)");
 
   return new OpenAI({
     apiKey: config.openai.key,
     baseURL,
-    defaultQuery: { "api-version": apiVersion }
+    defaultQuery: { "api-version": apiVersion },
   });
 }
 

@@ -30,4 +30,4 @@ Thumbs.db
 # misc.
 infra/
 docs/
-src/routes/chat_poc.js
+src/routes/chat_*.js
