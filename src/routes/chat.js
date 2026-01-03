@@ -12,14 +12,12 @@ import { queryDb } from "../db.js";
 import { resolveServiceId } from "../services/serviceResolver.js";
 import { resolveDocuments } from "../services/documentResolver.js";
 import { buildPageFilter } from "../services/pageFilter.js";
-import { openaiClient } from "../services/openaiClient.js";
 import { azureChat } from "../services/azureOpenAI.js";
 
 import { withRetry } from "../utils/retry.js";
 import { chatRateLimit } from "../middleware/chatRateLimit.js";
 
 const router = express.Router();
-const deploymentName = config.openai.deployment;
 
 /* ---------------------------------------
    Blob Client — environment-aware
@@ -167,26 +165,46 @@ router.post("/", chatRateLimit, async (req, res) => {
         pageConfig.skipPages
       );
 
-      combinedText += `
-===== DOCUMENT ${doc.document_id} =====
-${extracted}
+      const PER_DOC_LIMIT = 4000;
 
-`;
+      const safeExtract =
+        extracted.length > PER_DOC_LIMIT
+          ? extracted.slice(0, PER_DOC_LIMIT)
+          : extracted;
+
+      combinedText += `
+      ===== DOCUMENT ${doc.document_id} =====
+      ${safeExtract}
+
+      `;
     }
 
     /* -----------------------------------
-       4️⃣ AI Prompt
+      4️⃣ AI Prompt
     ----------------------------------- */
+    const MAX_CHARS = 12000; // safe for gpt-4o-mini
+
+    if (combinedText.length > MAX_CHARS) {
+      console.warn("⚠️ combinedText truncated");
+      combinedText = combinedText.slice(0, MAX_CHARS);
+    }
+
     const systemPrompt = `
-You are a medical knowledge assistant.
+    You are a medical knowledge assistant.
 
-Answer the user's question using ONLY the provided document content.
-If the answer cannot be found, respond exactly:
-"The document does not contain this information."
+    Answer the user's question using ONLY the provided document content.
 
-DOCUMENT CONTENT:
-${combinedText}
+    If the answer cannot be reasonably inferred from the document content,
+    respond exactly with:
+    "The document does not contain this information."
+
+    DOCUMENT CONTENT:
+    ${combinedText}
     `.trim();
+
+    const promptSize = Buffer.byteLength(systemPrompt, "utf8");
+    console.log("🧠 Prompt size (bytes):", promptSize);
+    console.log("🧠 Approx tokens:", Math.round(promptSize / 4));
 
     const completion = await withRetry(
       () =>
@@ -200,7 +218,9 @@ ${combinedText}
       }
     );
 
-    const answer = completion.choices[0].message.content;
+    const answer =
+      completion?.choices?.[0]?.message?.content ??
+      "The document does not contain this information.";
 
     /* -----------------------------------
        5️⃣ Log chat
