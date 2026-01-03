@@ -14,7 +14,11 @@ import { resolveDocuments } from "../services/documentResolver.js";
 import { buildPageFilter } from "../services/pageFilter.js";
 import { openaiClient } from "../services/openaiClient.js";
 
+import { withRetry } from "../utils/retry.js";
+import { chatRateLimit } from "../middleware/chatRateLimit.js";
+
 const router = express.Router();
+const deploymentName = config.openai.deployment;
 
 /* ---------------------------------------
    Blob Client — environment-aware
@@ -110,13 +114,19 @@ async function extractPages(buffer, fromPage, toPage, skipPages) {
 /* ---------------------------------------
    CHAT ROUTE
 ---------------------------------------- */
-router.post("/", async (req, res) => {
+router.post("/", chatRateLimit, async (req, res) => {
   try {
     const { service, submodule, question, username } = req.body;
 
     if (!service || !question) {
       return res.status(400).json({
         error: "service and question are required"
+      });
+    }
+
+    if (!username) {
+      return res.status(400).json({
+        error: "username is required"
       });
     }
 
@@ -144,6 +154,10 @@ router.post("/", async (req, res) => {
     for (const doc of documents) {
       const buffer = await downloadPdfFromBlob(doc.blob_directory);
       const pageConfig = buildPageFilter(doc);
+
+      if (!pageConfig || !pageConfig.fromPage) {
+        throw new Error(`Invalid page filter for document ${doc.document_id}`);
+      }
 
       const extracted = await extractPages(
         buffer,
@@ -173,13 +187,21 @@ DOCUMENT CONTENT:
 ${combinedText}
     `.trim();
 
-    const completion = await openaiClient.chat.completions.create({
-      model: config.openai.deployment,
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: question }
-      ]
-    });
+    const completion = await withRetry(
+      () =>
+        openaiClient.chat.completions.create({
+          model: deploymentName,
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: question }
+          ],
+          temperature: 0.2,
+        }),
+      {
+        retries: 3,
+        initialDelayMs: 1500,
+      }
+    );
 
     const answer = completion.choices[0].message.content;
 
@@ -193,7 +215,7 @@ ${combinedText}
       VALUES (?, ?, ?, ?, ?, SYSDATETIME())
       `,
       [
-        username || null,
+        username,
         serviceId,
         submodule || null,
         question,

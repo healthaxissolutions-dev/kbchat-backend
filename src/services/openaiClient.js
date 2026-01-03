@@ -8,36 +8,27 @@ function createOpenAIClient() {
   const baseURL = `${config.openai.endpoint}/openai/deployments/${config.openai.deployment}`;
   const apiVersion = "2024-02-15-preview";
 
-  // 🔹 PROD → Managed Identity
+  // 🔐 PROD → Managed Identity (Azure AD)
   if (config.server.env === "production") {
     console.log("🔐 Using Managed Identity for Azure OpenAI");
 
     const credential = new DefaultAzureCredential();
 
     return new OpenAI({
-        baseURL,
-        defaultQuery: { "api-version": apiVersion },
+      baseURL,
+      defaultQuery: { "api-version": apiVersion },
 
-        // 🔑 Required by SDK, NOT actually used
-        apiKey: "managed-identity",
-
-        fetch: async (url, options = {}) => {
-            const token = await credential.getToken(
-            "https://cognitiveservices.azure.com/.default"
-            );
-
-            options.headers = {
-            ...options.headers,
-            Authorization: `Bearer ${token.token}`,
-            "Content-Type": "application/json"
-            };
-
-            return fetch(url, options);
-        }
+      // ✅ OFFICIAL Azure AD support
+      azureADTokenProvider: async () => {
+        const token = await credential.getToken(
+          "https://cognitiveservices.azure.com/.default"
+        );
+        return token.token;
+      }
     });
   }
 
-  // 🔹 DEV / LOCAL → API Key
+  // 🔑 DEV / LOCAL → API Key
   console.log("🔑 Using API key for Azure OpenAI (dev)");
 
   return new OpenAI({
