@@ -6,7 +6,7 @@ import { config } from "../config.js";
 
 function createOpenAIClient() {
   const baseURL = `${config.openai.endpoint}/openai/deployments/${config.openai.deployment}`;
-  const apiVersion = "2024-02-15-preview";
+  const apiVersion = "2024-07-18";
 
   // 🔐 PROD → Managed Identity
   if (config.server.env === "production") {
