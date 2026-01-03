@@ -12,6 +12,12 @@ function createOpenAIClient() {
   if (config.server.env === "production") {
     console.log("🔐 Using Managed Identity for Azure OpenAI");
 
+    console.log("🧠 Azure OpenAI Runtime Config", {
+        endpoint: config.openai.endpoint,
+        deployment: config.openai.deployment,
+        env: config.server.env
+    });
+
     const credential = new DefaultAzureCredential();
 
     return new OpenAI({
