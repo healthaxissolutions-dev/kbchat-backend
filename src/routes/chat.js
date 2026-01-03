@@ -1,7 +1,6 @@
 // src/routes/chat.js
 
 import express from "express";
-import OpenAI from "openai";
 import PDFParser from "pdf2json";
 
 import { BlobServiceClient } from "@azure/storage-blob";
@@ -13,32 +12,9 @@ import { queryDb } from "../db.js";
 import { resolveServiceId } from "../services/serviceResolver.js";
 import { resolveDocuments } from "../services/documentResolver.js";
 import { buildPageFilter } from "../services/pageFilter.js";
+import { openaiClient } from "../services/openaiClient.js";
 
 const router = express.Router();
-
-/* ---------------------------------------
-   Azure OpenAI Client
----------------------------------------- */
-const credential = new DefaultAzureCredential();
-
-const client = new OpenAI({
-  baseURL: `${config.openai.endpoint}/openai/deployments/${config.openai.deployment}`,
-  defaultQuery: { "api-version": "2024-02-15-preview" },
-  apiKey: undefined,
-  fetch: async (url, options = {}) => {
-    const token = await credential.getToken(
-      "https://cognitiveservices.azure.com/.default"
-    );
-
-    options.headers = {
-      ...options.headers,
-      Authorization: `Bearer ${token.token}`,
-      "Content-Type": "application/json"
-    };
-
-    return fetch(url, options);
-  }
-});
 
 /* ---------------------------------------
    Blob Client — environment-aware
@@ -197,7 +173,7 @@ DOCUMENT CONTENT:
 ${combinedText}
     `.trim();
 
-    const completion = await client.chat.completions.create({
+    const completion = await openaiClient.chat.completions.create({
       model: config.openai.deployment,
       messages: [
         { role: "system", content: systemPrompt },
