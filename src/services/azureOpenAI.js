@@ -7,7 +7,7 @@ const apiVersion = "2024-12-01-preview";
 const endpoint = config.openai.endpoint;
 const deployment = config.openai.deployment;
 
-const isProd = config.openai.env === "production";
+const isProd = config.server.env === "production";
 
 export async function azureChat(messages) {
   let headers = {
