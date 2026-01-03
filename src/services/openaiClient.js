@@ -15,22 +15,25 @@ function createOpenAIClient() {
     const credential = new DefaultAzureCredential();
 
     return new OpenAI({
-      baseURL,
-      defaultQuery: { "api-version": apiVersion },
-      apiKey: undefined,
-      fetch: async (url, options = {}) => {
-        const token = await credential.getToken(
-          "https://cognitiveservices.azure.com/.default"
-        );
+        baseURL,
+        defaultQuery: { "api-version": apiVersion },
 
-        options.headers = {
-          ...options.headers,
-          Authorization: `Bearer ${token.token}`,
-          "Content-Type": "application/json"
-        };
+        // 🔑 Required by SDK, NOT actually used
+        apiKey: "managed-identity",
 
-        return fetch(url, options);
-      }
+        fetch: async (url, options = {}) => {
+            const token = await credential.getToken(
+            "https://cognitiveservices.azure.com/.default"
+            );
+
+            options.headers = {
+            ...options.headers,
+            Authorization: `Bearer ${token.token}`,
+            "Content-Type": "application/json"
+            };
+
+            return fetch(url, options);
+        }
     });
   }
 
