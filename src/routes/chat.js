@@ -13,6 +13,7 @@ import { resolveServiceId } from "../services/serviceResolver.js";
 import { resolveDocuments } from "../services/documentResolver.js";
 import { buildPageFilter } from "../services/pageFilter.js";
 import { openaiClient } from "../services/openaiClient.js";
+import { azureChat } from "../services/azureOpenAI.js";
 
 import { withRetry } from "../utils/retry.js";
 import { chatRateLimit } from "../middleware/chatRateLimit.js";
@@ -189,14 +190,10 @@ ${combinedText}
 
     const completion = await withRetry(
       () =>
-        openaiClient.chat.completions.create({
-          model: deploymentName,
-          messages: [
-            { role: "system", content: systemPrompt },
-            { role: "user", content: question }
-          ],
-          temperature: 0.2,
-        }),
+        azureChat([
+          { role: "system", content: systemPrompt },
+          { role: "user", content: question }
+        ]),
       {
         retries: 3,
         initialDelayMs: 1500,
