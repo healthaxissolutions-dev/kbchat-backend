@@ -23,7 +23,7 @@ export const config = {
     server: process.env.DB_SERVER,
     name: process.env.DB_NAME,
     user: process.env.DB_USER,
-    pass: process.env.DB_PASS,
+    pass: process.env.DB_PASSWORD,
     encrypt: process.env.DB_ENCRYPT === "true",
     auth: process.env.DB_AUTH, // "sql" | "managed_identity"
   },
