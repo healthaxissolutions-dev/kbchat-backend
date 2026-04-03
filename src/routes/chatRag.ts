@@ -1,0 +1,168 @@
+// src/routes/chatRag.ts
+// RAG chat route using Supabase vector search + Ollama or Gemini LLM
+// Supports both regular JSON responses and SSE streaming (stream: true in body).
+
+import express, { Request, Response } from "express";
+import { generateEmbedding, ollamaChat, ollamaChatStream } from "../services/ollama.js";
+import { geminiChat, geminiChatStream } from "../services/gemini.js";
+import { searchDocuments, DocumentChunk } from "../services/supabase.js";
+import { getSystemPrompt } from "../services/systemPrompt.js";
+// @ts-ignore
+import { chatRateLimit } from "../middleware/chatRateLimit.js";
+
+const router = express.Router();
+
+type AiModel = "ollama" | "gemini";
+
+/** Append context chunks to the base system prompt. */
+function buildSystemPrompt(baseInstruction: string, chunks: DocumentChunk[]): string {
+    if (chunks.length === 0) {
+        return baseInstruction;
+    }
+
+    const context = chunks
+        .map((c, i) => `[Source ${i + 1}]:\n${c.content}`)
+        .join("\n\n---\n\n");
+
+    return `${baseInstruction}\n\nDOCUMENT EXCERPTS:\n${context}`.trim();
+}
+
+/** Send one SSE event to the client. */
+function sendEvent(res: Response, payload: object): void {
+    res.write(`data: ${JSON.stringify(payload)}\n\n`);
+}
+
+/* -----------------------------------------------
+   POST /api/chat
+   Body: {
+     question: string,
+     username: string,
+     service?: string,
+     aimodel?: "ollama" | "gemini",   // default: "ollama"
+     model?: "ollama" | "gemini",     // alias for aimodel
+     stream?: boolean                 // default: false
+   }
+----------------------------------------------- */
+router.post("/", chatRateLimit, async (req: Request, res: Response) => {
+    try {
+        const { question, username, service, aimodel, model, stream } = req.body;
+
+
+        console.log(`🚀 [OllamaStream] stream: ${stream}`);
+
+        if (!question || typeof question !== "string" || question.trim() === "") {
+            return res.status(400).json({ error: "'question' is required." });
+        }
+
+        if (!username || typeof username !== "string") {
+            return res.status(400).json({ error: "'username' is required." });
+        }
+
+        const selectedModel: AiModel =
+            aimodel === "gemini" || model === "gemini" ? "gemini" : "ollama";
+
+        const useStream = stream === true;
+
+        console.log(
+            `💬 [${username}] "${question.slice(0, 80)}..." | Model: ${selectedModel} | Service: ${service || "none"} | Stream: ${useStream}`
+        );
+
+        /* -- SSE setup -- */
+        if (useStream) {
+            res.setHeader("Content-Type", "text/event-stream");
+            res.setHeader("Cache-Control", "no-cache");
+            res.setHeader("Connection", "keep-alive");
+            res.flushHeaders();
+        }
+
+        /* -----------------------------------------------
+           1️⃣  Embed the question
+        ----------------------------------------------- */
+        if (useStream) sendEvent(res, { type: "status", message: "Generating embedding…" });
+        console.log("🔍 Generating embedding via Ollama...");
+        const embedding = await generateEmbedding(question);
+
+        /* -----------------------------------------------
+           2️⃣  Retrieve relevant chunks from Supabase
+        ----------------------------------------------- */
+        if (useStream) sendEvent(res, { type: "status", message: "Searching knowledge base…" });
+        console.log("📚 Searching Supabase vector store...");
+        const filter = service ? { service } : {};
+        const chunks = await searchDocuments(embedding, 5, 0.3, filter);
+
+        console.log(`✅ Retrieved ${chunks.length} relevant chunk(s).`);
+        if (chunks.length === 0) {
+            console.warn("⚠️ No relevant chunks found. Answering with no context.");
+        }
+
+        /* -----------------------------------------------
+           3️⃣  Build prompt from file-based system instruction
+        ----------------------------------------------- */
+        if (useStream) sendEvent(res, { type: "status", message: "Generating answer…" });
+        const baseInstruction = await getSystemPrompt();
+        const systemPrompt = buildSystemPrompt(baseInstruction, chunks);
+
+        const sources = chunks.map((c) => ({
+            id: c.id,
+            similarity: c.similarity,
+            metadata: c.metadata,
+        }));
+
+        /* -----------------------------------------------
+           4️⃣  Generate answer — streaming or non-streaming
+        ----------------------------------------------- */
+        if (useStream) {
+            // --- STREAMING PATH ---
+            if (selectedModel === "gemini") {
+                console.log("🤖 Streaming answer via Gemini...");
+                await geminiChatStream(systemPrompt, question, (token) => {
+                    sendEvent(res, { type: "token", token });
+                });
+            } else {
+                console.log("🤖 Streaming answer via Ollama...");
+                await ollamaChatStream(
+                    [
+                        { role: "system", content: systemPrompt },
+                        { role: "user", content: question },
+                    ],
+                    (token) => {
+                        sendEvent(res, { type: "token", token });
+                    }
+                );
+            }
+
+            sendEvent(res, { type: "done", model: selectedModel, sources });
+            res.end();
+        } else {
+            // --- NON-STREAMING PATH (existing behaviour) ---
+            let answer: string;
+
+            if (selectedModel === "gemini") {
+                console.log("🤖 Generating answer via Gemini...");
+                answer = await geminiChat(systemPrompt, question);
+            } else {
+                console.log("🤖 Generating answer via Ollama...");
+                answer = await ollamaChat([
+                    { role: "system", content: systemPrompt },
+                    { role: "user", content: question },
+                ]);
+            }
+
+            console.log(`✅ Answer fuckingly generated (${answer.length} chars).`);
+            return res.json({ answer, model: selectedModel, sources });
+        }
+    } catch (err) {
+        const error = err as Error;
+        console.error("❌ RAG chat error:", error.message);
+
+        // If SSE already started, send error as event before closing
+        if (res.headersSent) {
+            sendEvent(res, { type: "error", message: error.message });
+            res.end();
+        } else {
+            return res.status(500).json({ error: "Internal server error", detail: error.message });
+        }
+    }
+});
+
+export default router;

@@ -11,6 +11,8 @@
   },
   "dependencies": {
     "@azure/storage-blob": "^12.29.1",
+    "@google/genai": "^1.43.0",
+    "@supabase/supabase-js": "^2.97.0",
     "axios": "^1.13.2",
     "cookie-parser": "^1.4.6",
     "cors": "^2.8.5",

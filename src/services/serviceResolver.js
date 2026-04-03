@@ -3,22 +3,22 @@
 import { queryDb } from "../db.js";
 
 /**
- * Resolve service_name → service_id
+ * Resolve service_id
  * Throws if not found or soft-deleted
  */
-export async function resolveServiceId(serviceName) {
+export async function resolveServiceId(serviceId) {
   const result = await queryDb(
     `
     SELECT service_id
     FROM knowledge.services
-    WHERE service_name = ?
+    WHERE service_id = ?
       AND deleted_date IS NULL
     `,
-    [serviceName]
+    [serviceId]
   );
 
   if (result.recordset.length === 0) {
-    throw new Error(`Service '${serviceName}' not found`);
+    throw new Error(`Service '${serviceId}' not found`);
   }
 
   return result.recordset[0].service_id;

@@ -3,11 +3,18 @@ import cors from "cors";
 import cookieParser from "cookie-parser";
 import morgan from "morgan";
 
-import chatRoute from "./src/routes/chat.js";
+// Legacy Azure-based chat route (kept for reference)
+// import chatRoute from "./src/routes/chat.js";
+
+// RAG chat route: Supabase vector search + local Ollama
+import chatRagRoute from "./src/routes/chatRag.js";
+
 import adminServicesRoute from "./src/routes/admin/services.js";
 import adminDocumentsRoute from "./src/routes/admin/documents.js";
+import adminSystemPromptRoute from "./src/routes/admin/systemPrompt.js";
 import testBackendRoute from "./src/routes/test/testBackend.js";
 import testDBRoute from "./src/routes/test/testDB.js";
+import documentsRoute from "./src/routes/documents.js";
 
 // Import auth routes (src in dev, dist in prod)
 const authRoutes = process.env.NODE_ENV === "production"
@@ -40,9 +47,11 @@ app.use(express.json());
 app.use("/api/auth", authRoutes);
 
 // Application Routes
-app.use("/api/chat", chatRoute);
+app.use("/api/chat", chatRagRoute);
+app.use("/api/documents", documentsRoute);
 app.use("/api/admin/services", adminServicesRoute);
 app.use("/api/admin/documents", adminDocumentsRoute);
+app.use("/api/admin/system-prompt", adminSystemPromptRoute);
 app.use("/api/test-backend", testBackendRoute);
 app.use("/api/test-db", testDBRoute);
 
