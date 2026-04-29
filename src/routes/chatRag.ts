@@ -47,14 +47,11 @@ function sendEvent(res: Response, payload: object): void {
 ----------------------------------------------- */
 router.post("/", chatRateLimit, async (req: Request, res: Response) => {
     try {
-        const { question, username, service, aimodel, model, stream } = req.body;
+        const { question, service, aimodel, model, stream } = req.body;
+        const username = req.user!.email;
 
         if (!question || typeof question !== "string" || question.trim() === "") {
             return sendError(res, 400, "'question' is required.");
-        }
-
-        if (!username || typeof username !== "string") {
-            return sendError(res, 400, "'username' is required.");
         }
 
         const selectedModel: AiModel =

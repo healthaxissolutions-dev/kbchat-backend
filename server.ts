@@ -43,8 +43,8 @@ app.use(
 );
 
 app.use("/api/auth", authRoutes);
-app.use("/api/chat", chatRagRoute);
-app.use("/api/documents", documentsRoute);
+app.use("/api/chat", authenticate, chatRagRoute);
+app.use("/api/documents", authenticate, documentsRoute);
 
 app.use("/api/admin/services", authenticate, authorize(["admin"]), adminServicesRoute);
 app.use("/api/admin/documents", authenticate, authorize(["admin"]), adminDocumentsRoute);
