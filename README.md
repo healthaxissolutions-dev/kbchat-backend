@@ -21,7 +21,6 @@ Provides RAG chat, document management, service management, and JWT-based authen
 - Azure Blob Storage for PDFs (connection string in dev, Managed Identity in prod)
 
 **Upcoming**
-- Persist users and system prompt to SQL (currently in-memory / flat file)
 - Frontend implementation (chat UI, admin panel)
 
 ---
@@ -30,11 +29,11 @@ Provides RAG chat, document management, service management, and JWT-based authen
 ```
 project/
 │
-├── server.js               # Entry point; wires routes and middleware
+├── server.ts               # Entry point; wires routes and middleware
 │
 ├── src/
-│   ├── db.js               # MSSQL connection pool and query helper
-│   ├── config.js           # Environment variable loading
+│   ├── db.ts               # MSSQL connection pool and query helper
+│   ├── config.ts           # Environment variable loading
 │   │
 │   ├── auth/               # Azure Entra ID OAuth module (TypeScript)
 │   │   ├── routes.ts
@@ -52,14 +51,15 @@ project/
 │   │   ├── ollama.ts       # Embeddings + chat via local Ollama
 │   │   ├── gemini.ts       # Chat via Google Gemini
 │   │   ├── supabase.ts     # pgvector similarity search
-│   │   └── systemPrompt.ts # System prompt loading (file-backed, cached)
+│   │   └── systemPrompt.ts # System prompt loading (SQL-backed, cached)
 │   │
 │   ├── prompts/
 │   │   └── systemPrompt.txt
 │   │
 │   └── utils/
 │       ├── blobClient.js
-│       └── validateEnv.js
+│       ├── error.ts
+│       └── validateEnv.ts
 │
 └── .env
 ```
@@ -120,11 +120,12 @@ npm install
 ## ▶️ Run the Server
 
 ```bash
-npm start
+npm run build   # Compile TypeScript to dist/
+npm start       # node dist/server.js
 ```
 For development with auto-restart:
 ```bash
-npm run dev
+npm run dev     # tsx watch server.ts (no build needed)
 ```
 ---
 

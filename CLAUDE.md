@@ -5,9 +5,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Commands
 
 ```bash
-npm run dev        # Start with tsx watch (auto-restarts on change)
-npm start          # Start once with tsx
+npm run dev        # Start with tsx watch server.ts (auto-restarts on change)
 npm run build      # Compile TypeScript to dist/
+npm start          # node dist/server.js (requires build first)
 npm run build:watch
 ```
 
@@ -15,12 +15,12 @@ No test runner is configured — use manual testing via `curl` or Postman.
 
 ## Architecture
 
-This is a Node.js + Express backend using ES modules (`"type": "module"`). The codebase is a **mixed JS/TS project**: newer code is TypeScript compiled to `dist/`, legacy routes remain plain JS. The entry point is `server.js` (JS), which imports from both `src/*.js` and `src/auth/*.ts` (loaded via `tsx` at runtime in dev, from `dist/` in prod).
+This is a Node.js + Express backend using ES modules (`"type": "module"`). The codebase is **fully TypeScript**: all source files are `.ts`, compiled to `dist/` via `tsc`. Remaining `.js` files in `src/` are compiled with `allowJs: true` (no type-checking on them). The entry point is `server.ts` at the project root.
 
 ### Request flow
 
 ```
-server.js
+server.ts
   → /api/auth/*          src/auth/routes.ts          (Azure Entra ID OAuth)
   → /api/chat            src/routes/chatRag.ts        (RAG chat — main feature, public)
   → /api/documents       src/routes/documents.ts      (PDF serving from Blob, public)
@@ -61,12 +61,12 @@ OAuth frontend flow (must be followed in order):
 3. Entra ID echoes `state` back with `code`
 4. `POST /api/auth/callback` with `{ code, state }` — nonce consumed, session cookie set
 
-In dev mode `server.js` imports directly from `./src/auth/*.ts` (tsx handles it); in production it imports from `./dist/auth/*.js`. Run `npm run build` before testing the production code path.
+Dev (`tsx watch server.ts`) executes TypeScript directly. Prod runs `dist/server.js` compiled by `tsc` with `rootDir: "."`, so `server.ts` → `dist/server.js` and `src/**` → `dist/src/**`.
 
 ### Data layer
 
-- **Azure SQL / MSSQL** (`src/db.js`) — services, documents metadata, chat logs, users, system prompt (all under `knowledge.*`). Pool is created lazily on first query and auto-resets on error so the next query reconnects. Queries use `?` positional placeholders rewritten to `@p0`, `@p1`, … at call time with count validation.
-- **Error responses** — all application routes use `sendError(res, status, message, detail?)` from `src/utils/error.js`. The `detail` field is included only outside production. Auth routes keep their own `{ success, error }` envelope.
+- **Azure SQL / MSSQL** (`src/db.ts`) — services, documents metadata, chat logs, users, system prompt (all under `knowledge.*`). Pool is created lazily on first query and auto-resets on error so the next query reconnects. Queries use `?` positional placeholders rewritten to `@p0`, `@p1`, … at call time with count validation.
+- **Error responses** — all application routes use `sendError(res, status, message, detail?)` from `src/utils/error.ts`. The `detail` field is included only outside production. Auth routes keep their own `{ success, error }` envelope.
 
 ### Required SQL migrations
 
@@ -110,15 +110,14 @@ Copy `.env.example` to `.env`. Key groupings:
 - **Ollama**: `OLLAMA_BASE_URL` (default `http://localhost:11434`), `OLLAMA_MODEL`, `OLLAMA_EMBEDDING_MODEL`
 - **Gemini**: `GEMINI_API_KEY`, `GEMINI_MODEL` (default `gemini-2.0-flash`)
 - **Azure Storage**: `AZURE_STORAGE_ACCOUNT`, `AZURE_STORAGE_CONTAINER`, `AZURE_STORAGE_CONNECTION_STRING`, `AZURE_STORAGE_USE_MI`
-- **Azure Search / OpenAI**: accepted by `src/config.js` but optional — not used by the active chat route
+- **Azure Search / OpenAI**: accepted by `src/config.ts` but optional — not used by the active chat route
 
-`src/config.js` calls `process.exit(1)` for several missing vars at startup — check its `required()` calls if the server won't start.
+`src/config.ts` calls `process.exit(1)` for missing required vars at startup — check its `required()` calls if the server won't start.
 
 ### TypeScript compilation
 
-`tsconfig.json` targets `NodeNext` modules, outputs to `dist/`, with strict mode on. Only `src/**/*` is compiled. `dist/` is in `.gitignore` — the CI pipeline runs `npm run build` before packaging.
+`tsconfig.json` targets `NodeNext` modules, `rootDir: "."`, outputs to `dist/`, strict mode on, `allowJs: true` / `checkJs: false` so remaining `.js` helpers compile without errors. `dist/` is in `.gitignore` — CI runs `npm run build` before packaging.
 
 ### Known remaining issues (to address next)
 
 - Service-scoped RAG search not yet implemented — `searchDocuments` searches all chunks; add a filtered Supabase RPC when ready
-- Full TypeScript migration pending for `db.js`, `config.js`, and admin routes

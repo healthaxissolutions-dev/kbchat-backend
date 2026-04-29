@@ -1,4 +1,4 @@
-import express from "express";
+import express, { Request, Response, NextFunction } from "express";
 import cors from "cors";
 import compression from "compression";
 import cookieParser from "cookie-parser";
@@ -9,22 +9,9 @@ import adminServicesRoute from "./src/routes/admin/services.js";
 import adminDocumentsRoute from "./src/routes/admin/documents.js";
 import adminSystemPromptRoute from "./src/routes/admin/systemPrompt.js";
 import documentsRoute from "./src/routes/documents.js";
-
-// Auth module: TypeScript source in dev, compiled output in prod
-const isProd = process.env.NODE_ENV === "production";
-
-const authRoutes = isProd
-  ? (await import("./dist/auth/routes.js")).default
-  : (await import("./src/auth/routes.ts")).default;
-
-const { authenticate } = isProd
-  ? await import("./dist/auth/middleware/authenticate.js")
-  : await import("./src/auth/middleware/authenticate.ts");
-
-const { authorize } = isProd
-  ? await import("./dist/auth/middleware/authorize.js")
-  : await import("./src/auth/middleware/authorize.ts");
-
+import authRoutes from "./src/auth/routes.js";
+import { authenticate } from "./src/auth/middleware/authenticate.js";
+import { authorize } from "./src/auth/middleware/authorize.js";
 import { config } from "./src/config.js";
 import { validateStorageConfig } from "./src/utils/validateEnv.js";
 
@@ -46,27 +33,23 @@ app.use(cors(corsOptions));
 app.use(cookieParser());
 app.use(express.json());
 
-// Compress all responses except SSE streams (buffering breaks real-time delivery)
-app.use(compression({
-  filter: (req, res) => {
-    if (req.path.startsWith("/api/chat")) return false;
-    return compression.filter(req, res);
-  },
-}));
+app.use(
+  compression({
+    filter: (req: Request, res: Response) => {
+      if (req.path.startsWith("/api/chat")) return false;
+      return compression.filter(req, res);
+    },
+  })
+);
 
-// Auth routes (must be before protected routes)
 app.use("/api/auth", authRoutes);
-
-// Public routes
 app.use("/api/chat", chatRagRoute);
 app.use("/api/documents", documentsRoute);
 
-// Admin routes — require authentication and the "admin" role
 app.use("/api/admin/services", authenticate, authorize(["admin"]), adminServicesRoute);
 app.use("/api/admin/documents", authenticate, authorize(["admin"]), adminDocumentsRoute);
 app.use("/api/admin/system-prompt", authenticate, authorize(["admin"]), adminSystemPromptRoute);
 
-// Test/debug routes — development only
 if (config.server.env !== "production") {
   const { default: testBackendRoute } = await import("./src/routes/test/testBackend.js");
   const { default: testDBRoute } = await import("./src/routes/test/testDB.js");
@@ -79,8 +62,7 @@ app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
 
-// Global error handler
-app.use((err, req, res, next) => {
+app.use((err: Error & { status?: number }, _req: Request, res: Response, _next: NextFunction) => {
   console.error("❌ [Global Error]:", err.stack);
   res.status(err.status || 500).json({
     error: err.name || "InternalServerError",

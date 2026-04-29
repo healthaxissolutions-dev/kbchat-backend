@@ -1,14 +1,14 @@
 import sql from "mssql";
 import { config } from "./config.js";
 
-function getDbConfig() {
+function getDbConfig(): string | sql.config {
   if (config.sql.auth === "managed_identity") {
     console.log("🟩 Using Azure Managed Identity for SQL");
     return {
-      server: config.sql.server,
+      server: config.sql.server!,
       database: config.sql.name,
       options: { encrypt: true },
-      authentication: { type: "azure-active-directory-default" },
+      authentication: { type: "azure-active-directory-default" } as any,
       pool: { max: 10, min: 0, idleTimeoutMillis: 30000 },
     };
   }
@@ -22,7 +22,7 @@ function getDbConfig() {
   return {
     user: config.sql.user,
     password: config.sql.pass,
-    server: config.sql.server,
+    server: config.sql.server!,
     database: config.sql.name,
     options: {
       encrypt: config.sql.encrypt,
@@ -32,25 +32,20 @@ function getDbConfig() {
   };
 }
 
-let pool = null;
-let connectPromise = null;
+let pool: sql.ConnectionPool | null = null;
+let connectPromise: Promise<sql.ConnectionPool> | null = null;
 
-async function getPool() {
+async function getPool(): Promise<sql.ConnectionPool> {
   if (pool) return pool;
-
-  // Prevent a thundering herd of reconnects under concurrent requests
   if (connectPromise) return connectPromise;
 
   connectPromise = (async () => {
     const newPool = await sql.connect(getDbConfig());
-
-    // Reset pool reference on error so the next query triggers a fresh connect
-    newPool.on("error", (err) => {
+    newPool.on("error", (err: Error) => {
       console.error("❌ SQL pool error — resetting connection:", err.message);
       pool = null;
       connectPromise = null;
     });
-
     pool = newPool;
     connectPromise = null;
     console.log("✔ Connected to SQL database");
@@ -60,7 +55,10 @@ async function getPool() {
   return connectPromise;
 }
 
-export async function queryDb(query, params = []) {
+export async function queryDb(
+  query: string,
+  params: unknown[] = []
+): Promise<sql.IResult<Record<string, any>>> {
   const placeholders = (query.match(/\?/g) || []).length;
   if (placeholders !== params.length) {
     throw new Error(
@@ -73,7 +71,7 @@ export async function queryDb(query, params = []) {
 
   const p = await getPool();
   const request = p.request();
-  params.forEach((value, index) => request.input(`p${index}`, value));
+  params.forEach((value, index) => request.input(`p${index}`, value as any));
 
   try {
     return await request.query(sqlQuery);

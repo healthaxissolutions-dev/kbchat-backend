@@ -19,7 +19,6 @@
 
 import { EntraIdTokenPayload, AppUser } from "../types.js";
 import { authConfig } from "../config.js";
-// @ts-ignore
 import { queryDb } from "../../db.js";
 
 export class UserService {

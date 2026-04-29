@@ -13,7 +13,6 @@
 import { readFile } from "fs/promises";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
-// @ts-ignore
 import { queryDb } from "../db.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));

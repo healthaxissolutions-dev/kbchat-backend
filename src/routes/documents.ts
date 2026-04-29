@@ -4,13 +4,9 @@
 // Results are cached in memory (default TTL: 10 minutes).
 
 import express, { Request, Response } from "express";
-// @ts-ignore
 import { getBlobByUrl } from "../utils/blobClient.js";
-// @ts-ignore
 import { resolveServiceId } from "../services/serviceResolver.js";
-// @ts-ignore
 import { resolveDocuments } from "../services/documentResolver.js";
-// @ts-ignore
 import { sendError } from "../utils/error.js";
 
 const router = express.Router();

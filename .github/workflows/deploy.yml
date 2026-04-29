@@ -43,7 +43,7 @@ jobs:
         run: npm prune --production
 
       - name: Zip artifact
-        run: zip -r release.zip . -x "*.git*" -x "src/routes/test/*"
+        run: zip -r release.zip . -x "*.git*" -x "src/routes/test/*" -x "dist/src/routes/test/*"
 
       - name: Login to Azure (OIDC)
         uses: azure/login@v2
@@ -88,7 +88,7 @@ jobs:
         run: npm prune --production
 
       - name: Zip artifact
-        run: zip -r release.zip . -x "*.git*" -x "src/routes/test/*"
+        run: zip -r release.zip . -x "*.git*" -x "src/routes/test/*" -x "dist/src/routes/test/*"
 
       - name: Login to Azure (OIDC)
         uses: azure/login@v2

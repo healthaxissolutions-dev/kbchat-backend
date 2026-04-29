@@ -7,9 +7,7 @@ import { generateEmbedding, ollamaChat, ollamaChatStream } from "../services/oll
 import { geminiChat, geminiChatStream } from "../services/gemini.js";
 import { searchDocuments, DocumentChunk } from "../services/supabase.js";
 import { getSystemPrompt } from "../services/systemPrompt.js";
-// @ts-ignore
 import { chatRateLimit } from "../middleware/chatRateLimit.js";
-// @ts-ignore
 import { sendError } from "../utils/error.js";
 
 const router = express.Router();

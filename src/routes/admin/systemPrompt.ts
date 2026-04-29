@@ -3,7 +3,6 @@
 
 import express, { Request, Response } from "express";
 import { getSystemPrompt, updateSystemPrompt } from "../../services/systemPrompt.js";
-// @ts-ignore
 import { sendError } from "../../utils/error.js";
 
 const router = express.Router();

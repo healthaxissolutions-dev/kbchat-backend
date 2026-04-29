@@ -16,10 +16,14 @@
     "declarationMap": true,
     "sourceMap": true,
     "outDir": "./dist",
+    "rootDir": ".",
+    "allowJs": true,
+    "checkJs": false,
     "skipDefaultLibCheck": true
   },
   "include": [
-    "src/**/*"
+    "src/**/*",
+    "server.ts"
   ],
   "exclude": [
     "node_modules",
