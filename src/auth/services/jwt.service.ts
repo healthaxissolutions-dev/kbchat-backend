@@ -29,11 +29,12 @@ export class JwtService {
     const expiresIn = 60 * 60; // 1 hour (hardcoded for security)
 
     const payload: AppSessionJWT = {
-      sub: user.id, // Subject: internal user ID
+      sub: user.id,
       email: user.email,
       name: user.name,
       displayName: user.displayName,
-      roles: user.roles, // Essential roles for authorization
+      roles: user.roles,
+      permissions: user.permissions,
       iat: now,
       exp: now + expiresIn,
       iss: authConfig.jwt.issuer,

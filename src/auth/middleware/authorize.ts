@@ -1,20 +1,8 @@
-/**
- * Authorization Middleware
- * Role-based and permission-based access control
- */
-
 import { Request, Response, NextFunction } from "express";
 
 /**
- * Role-based authorization middleware
- * Checks if user has at least one of the specified roles
- *
- * @param allowedRoles Array of roles that are allowed
- * @returns Middleware function
- *
- * Usage:
- * router.post("/admin/users", authorize(["admin"]), handler)
- * router.get("/reports", authorize(["admin", "analyst"]), handler)
+ * Role-based authorization middleware.
+ * Usage: router.post("/admin/users", authorize(["admin"]), handler)
  */
 export const authorize = (allowedRoles: string[]) => {
   return (req: Request, res: Response, next: NextFunction): void => {
@@ -23,16 +11,11 @@ export const authorize = (allowedRoles: string[]) => {
       return;
     }
 
-    // Check if user has any of the allowed roles
-    const hasRole = req.user.roles.some((role) =>
-      allowedRoles.includes(role)
-    );
-
+    const hasRole = req.user.roles.some((role) => allowedRoles.includes(role));
     if (!hasRole) {
       res.status(403).json({
         error: "Forbidden: Insufficient role permissions",
         required: allowedRoles,
-        actual: req.user.roles,
       });
       return;
     }
@@ -42,15 +25,9 @@ export const authorize = (allowedRoles: string[]) => {
 };
 
 /**
- * Permission-based authorization middleware
- * More granular than role-based (single permission string)
- *
- * @param permission Single permission string to check
- * @returns Middleware function
- *
- * Usage:
- * router.delete("/documents/:id", requirePermission("delete:documents"), handler)
- * router.post("/rag/query", requirePermission("query:rag"), handler)
+ * Permission-based authorization middleware (single permission).
+ * Permissions are embedded in the JWT at login time from the role→permission map.
+ * Usage: router.delete("/documents/:id", requirePermission("delete:documents"), handler)
  */
 export const requirePermission = (permission: string) => {
   return (req: Request, res: Response, next: NextFunction): void => {
@@ -59,30 +36,22 @@ export const requirePermission = (permission: string) => {
       return;
     }
 
-    // TODO: Fetch user permissions from database or cache
-    // For now, assume permissions would be fetched from user service
-    // const userPermissions = await userService.getUserWithPermissions(req.user.sub);
-    // const hasPermission = userPermissions.permissions.includes(permission);
-
-    // Temporary: allow all for now
-    // if (!hasPermission) {
-    //   res.status(403).json({
-    //     error: "Forbidden: Missing permission",
-    //     required: permission,
-    //   });
-    //   return;
-    // }
+    const userPermissions = req.user.permissions ?? [];
+    if (!userPermissions.includes(permission)) {
+      res.status(403).json({
+        error: "Forbidden: Missing permission",
+        required: permission,
+      });
+      return;
+    }
 
     next();
   };
 };
 
 /**
- * Multiple permission authorization
- * User must have ALL specified permissions
- *
- * @param permissions Array of permissions (user must have all)
- * @returns Middleware function
+ * Permission-based authorization middleware (all permissions required).
+ * Usage: router.post("/sensitive", requireAllPermissions(["write:documents", "manage:rag"]), handler)
  */
 export const requireAllPermissions = (permissions: string[]) => {
   return (req: Request, res: Response, next: NextFunction): void => {
@@ -91,16 +60,18 @@ export const requireAllPermissions = (permissions: string[]) => {
       return;
     }
 
-    // TODO: Implement permission check
-    // const userPermissions = await userService.getUserWithPermissions(req.user.sub);
-    // const hasAll = permissions.every(p => userPermissions.permissions.includes(p));
+    const userPermissions = req.user.permissions ?? [];
+    const missing = permissions.filter((p) => !userPermissions.includes(p));
+    if (missing.length > 0) {
+      res.status(403).json({
+        error: "Forbidden: Missing permissions",
+        required: permissions,
+      });
+      return;
+    }
 
     next();
   };
 };
 
-/**
- * Admin-only authorization
- * Convenience middleware for admin endpoints
- */
 export const adminOnly = authorize(["admin"]);

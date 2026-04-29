@@ -3,23 +3,26 @@ import cors from "cors";
 import cookieParser from "cookie-parser";
 import morgan from "morgan";
 
-// Legacy Azure-based chat route (kept for reference)
-// import chatRoute from "./src/routes/chat.js";
-
-// RAG chat route: Supabase vector search + local Ollama
 import chatRagRoute from "./src/routes/chatRag.js";
-
 import adminServicesRoute from "./src/routes/admin/services.js";
 import adminDocumentsRoute from "./src/routes/admin/documents.js";
 import adminSystemPromptRoute from "./src/routes/admin/systemPrompt.js";
-import testBackendRoute from "./src/routes/test/testBackend.js";
-import testDBRoute from "./src/routes/test/testDB.js";
 import documentsRoute from "./src/routes/documents.js";
 
-// Import auth routes (src in dev, dist in prod)
-const authRoutes = process.env.NODE_ENV === "production"
+// Auth module: TypeScript source in dev, compiled output in prod
+const isProd = process.env.NODE_ENV === "production";
+
+const authRoutes = isProd
   ? (await import("./dist/auth/routes.js")).default
   : (await import("./src/auth/routes.ts")).default;
+
+const { authenticate } = isProd
+  ? await import("./dist/auth/middleware/authenticate.js")
+  : await import("./src/auth/middleware/authenticate.ts");
+
+const { authorize } = isProd
+  ? await import("./dist/auth/middleware/authorize.js")
+  : await import("./src/auth/middleware/authorize.ts");
 
 import { config } from "./src/config.js";
 import { validateStorageConfig } from "./src/utils/validateEnv.js";
@@ -29,10 +32,9 @@ validateStorageConfig(config);
 const app = express();
 app.set("trust proxy", 1);
 
-// CORS configuration that supports credentials
 const corsOptions = {
   origin: process.env.FRONTEND_URL || "http://localhost:3000",
-  credentials: true, // Allow cookies to be sent/received
+  credentials: true,
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization"],
   optionsSuccessStatus: 200,
@@ -43,26 +45,32 @@ app.use(cors(corsOptions));
 app.use(cookieParser());
 app.use(express.json());
 
-// Authentication Routes (must be before protected routes)
+// Auth routes (must be before protected routes)
 app.use("/api/auth", authRoutes);
 
-// Application Routes
+// Public routes
 app.use("/api/chat", chatRagRoute);
 app.use("/api/documents", documentsRoute);
-app.use("/api/admin/services", adminServicesRoute);
-app.use("/api/admin/documents", adminDocumentsRoute);
-app.use("/api/admin/system-prompt", adminSystemPromptRoute);
-app.use("/api/test-backend", testBackendRoute);
-app.use("/api/test-db", testDBRoute);
 
-// Server port comes from config.js now
+// Admin routes — require authentication and the "admin" role
+app.use("/api/admin/services", authenticate, authorize(["admin"]), adminServicesRoute);
+app.use("/api/admin/documents", authenticate, authorize(["admin"]), adminDocumentsRoute);
+app.use("/api/admin/system-prompt", authenticate, authorize(["admin"]), adminSystemPromptRoute);
+
+// Test/debug routes — development only
+if (config.server.env !== "production") {
+  const { default: testBackendRoute } = await import("./src/routes/test/testBackend.js");
+  const { default: testDBRoute } = await import("./src/routes/test/testDB.js");
+  app.use("/api/test-backend", testBackendRoute);
+  app.use("/api/test-db", testDBRoute);
+}
+
 const PORT = config.server.port;
-
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
 
-// Global Error Handler
+// Global error handler
 app.use((err, req, res, next) => {
   console.error("❌ [Global Error]:", err.stack);
   res.status(err.status || 500).json({

@@ -1,0 +1,97 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Commands
+
+```bash
+npm run dev        # Start with tsx watch (auto-restarts on change)
+npm start          # Start once with tsx
+npm run build      # Compile TypeScript to dist/
+npm run build:watch
+```
+
+No test runner is configured — use manual testing via `curl` or Postman.
+
+## Architecture
+
+This is a Node.js + Express backend using ES modules (`"type": "module"`). The codebase is a **mixed JS/TS project**: newer code is TypeScript compiled to `dist/`, legacy routes remain plain JS. The entry point is `server.js` (JS), which imports from both `src/*.js` and `src/auth/*.ts` (loaded via `tsx` at runtime in dev, from `dist/` in prod).
+
+### Request flow
+
+```
+server.js
+  → /api/auth/*          src/auth/routes.ts          (Azure Entra ID OAuth)
+  → /api/chat            src/routes/chatRag.ts        (RAG chat — main feature, public)
+  → /api/documents       src/routes/documents.ts      (PDF serving from Blob, public)
+  → /api/admin/*         src/routes/admin/            (admin only — authenticate + authorize(["admin"]))
+  → /api/test-*          src/routes/test/             (dev only — not registered in production)
+```
+
+### RAG chat pipeline (chatRag.ts)
+
+The core feature. For each `POST /api/chat`:
+1. Generate a text embedding via **Ollama** (`mxbai-embed-large`)
+2. Vector search in **Supabase** (`match_mxbai_chunks` RPC, default top-5 at ≥0.3 similarity)
+3. Build a system prompt by appending retrieved chunks to the base instruction (from `src/prompts/systemPrompt.txt`, 5-min cached)
+4. Call **Ollama** (default `llama3.2`) or **Gemini** for the answer
+5. Supports SSE streaming (`stream: true` in body) — sends `status`, `token`, `done`, and `error` events
+
+Selecting the model: pass `aimodel: "gemini"` or `model: "gemini"` in the request body; anything else defaults to Ollama.
+
+Rate limit: 5 requests per minute per IP (`src/middleware/chatRateLimit.js`).
+
+Note: the `service` filter passed to `searchDocuments` is currently ignored by the Supabase RPC — the `match_mxbai_chunks` function does not support metadata filtering.
+
+### Auth module (src/auth/)
+
+Full Azure Entra ID OAuth 2.0 flow. All files are TypeScript:
+
+- **nonce.service.ts** — generates and validates one-time state nonces for CSRF protection (10-min TTL, in-memory)
+- **entraId.service.ts** — exchanges authorization code for tokens, verifies ID token signature against cached Entra ID JWKS (1-hour cache)
+- **jwt.service.ts** — issues/verifies a short-lived (1 h) HS256 application JWT; the payload includes both `roles` and `permissions`
+- **user.service.ts** — maps Entra ID claims to an internal `AppUser` with RBAC roles; `getPermissionsForRoles` computes permissions from roles (no DB yet — TODO)
+- **authenticate.ts** — reads JWT from `app_session` HttpOnly cookie, attaches payload to `req.user`
+- **authorize.ts** — role-based (`authorize(["admin"])`) and permission-based (`requirePermission("delete:documents")`) middleware; both enforce using JWT claims
+
+OAuth frontend flow (must be followed in order):
+1. `GET /api/auth/nonce` → receive `{ state }`
+2. Redirect user to Entra ID with `state` in the authorization URL
+3. Entra ID echoes `state` back with `code`
+4. `POST /api/auth/callback` with `{ code, state }` — nonce consumed, session cookie set
+
+In dev mode `server.js` imports directly from `./src/auth/*.ts` (tsx handles it); in production it imports from `./dist/auth/*.js`. Run `npm run build` before testing the production code path.
+
+### Data layer
+
+- **Azure SQL / MSSQL** (`src/db.js`) — services, documents metadata, chat logs (schema under `knowledge.*`)
+- **Supabase** — pgvector store for document chunks; searched via `match_mxbai_chunks` RPC
+- **Azure Blob Storage** — PDF source files; accessed via connection string (dev) or Managed Identity (prod)
+
+### Environment variables
+
+Copy `.env.example` to `.env`. Key groupings:
+- **Server**: `PORT`, `NODE_ENV`, `BACKEND_URL`, `FRONTEND_URL`
+- **Azure Entra ID**: `AZURE_AD_CLIENT_ID`, `AZURE_AD_CLIENT_SECRET`, `AZURE_AD_TENANT_ID`, `OAUTH_REDIRECT_URI`
+- **JWT**: `JWT_SECRET`, `JWT_EXPIRES_IN`
+- **SQL**: `SQL_CONNECTION_STRING` (preferred in prod) or `DB_SERVER`/`DB_NAME`/`DB_USER`/`DB_PASSWORD`
+- **Supabase**: `SUPABASE_URL`, `SUPABASE_KEY`
+- **Ollama**: `OLLAMA_BASE_URL` (default `http://localhost:11434`), `OLLAMA_MODEL`, `OLLAMA_EMBEDDING_MODEL`
+- **Gemini**: `GEMINI_API_KEY`, `GEMINI_MODEL` (default `gemini-2.0-flash`)
+- **Azure Storage**: `AZURE_STORAGE_ACCOUNT`, `AZURE_STORAGE_CONTAINER`, `AZURE_STORAGE_CONNECTION_STRING`, `AZURE_STORAGE_USE_MI`
+- **Azure Search / OpenAI**: still required by `src/config.js` at startup (legacy — not used by the active chat route; use dummy values locally if not needed)
+
+`src/config.js` calls `process.exit(1)` for several missing vars at startup — check its `required()` calls if the server won't start.
+
+### TypeScript compilation
+
+`tsconfig.json` targets `NodeNext` modules, outputs to `dist/`, with strict mode on. Only `src/**/*` is compiled. `dist/` is in `.gitignore` — the CI pipeline runs `npm run build` before packaging.
+
+### Known remaining issues (to address next)
+
+- `src/config.js` crashes on startup for Azure OpenAI/Search vars that the active chat route no longer uses — make those optional
+- System prompt stored in a flat file (`src/prompts/systemPrompt.txt`) is ephemeral on Azure App Service — move to DB
+- `user.service.ts` stubs: `syncUserFromEntraId` doesn't persist to DB, `getUserWithPermissions` always returns null
+- Metadata filter in `searchDocuments` is silently ignored (the Supabase RPC doesn't support it)
+- Blob client is duplicated across `blobClient.js`, `chat.js` (dead), and `documents.ts`
+- Dead code: `src/routes/chat.js` and `src/services/azureOpenAI.js` are no longer on any active route

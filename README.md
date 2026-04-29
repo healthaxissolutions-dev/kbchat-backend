@@ -109,32 +109,51 @@ npm run dev
 ```
 ---
 
+## 🔐 OAuth Flow
+
+The frontend must follow this sequence to authenticate:
+
+1. `GET /api/auth/nonce` → receive `{ state }`
+2. Redirect user to Entra ID with `state` appended to the authorization URL
+3. Entra ID redirects back to the frontend with `code` and `state`
+4. `POST /api/auth/callback` with `{ code, state }` → session cookie is set
+5. All subsequent requests include the cookie automatically
+
+The `state` nonce is one-time-use and expires after 10 minutes. An invalid or missing state returns `400`.
+
+---
+
 ## 🧪 API Endpoints
 
-### GET `/api/services`
+### Authentication
 
-Fetch all services.
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/api/auth/nonce` | Get a one-time state nonce before starting OAuth |
+| `POST` | `/api/auth/callback` | Exchange authorization code for session cookie |
+| `POST` | `/api/auth/logout` | Clear session cookie |
+| `GET` | `/api/auth/me` | Get current user (requires session) |
 
-### POST `/api/chat`
+### Chat
 
-Chat endpoint.
+| Method | Endpoint | Description |
+|---|---|---|
+| `POST` | `/api/chat` | RAG chat (Ollama or Gemini, optional SSE streaming) |
 
-Example request body:
-```json
-{
-  "service": "ondamed",
-  "submodule": "Module 3",
-  "question": "What is frequency 101.1 Hz for?",
-  "username": "testUser"
-}
-```
-### GET `/api/test-db`
+### Admin (requires `admin` role)
 
-Test SQL connectivity.
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET/POST/PUT/DELETE` | `/api/admin/services` | Manage services |
+| `GET/POST/PUT/DELETE` | `/api/admin/documents` | Manage document mappings |
+| `GET/PUT` | `/api/admin/system-prompt` | Read/update the system prompt |
 
-### GET `/api/test-backend`
+### Test (development only — not available in production)
 
-Test whether backend is working.
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/api/test-db` | Test SQL connectivity |
+| `GET` | `/api/test-backend` | Basic health check |
 
 ### POST `/api/upload` (in development)
 

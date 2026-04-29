@@ -67,6 +67,7 @@ export interface AppSessionJWT {
   name: string;
   displayName: string;
   roles: string[]; // Essential roles only
+  permissions: string[]; // Computed from roles at login time
   iat: number; // Issued at
   exp: number; // Expiration
   iss: string; // Issuer (backend URL)

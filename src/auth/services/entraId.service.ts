@@ -17,6 +17,20 @@ import {
 } from "../types.js";
 
 export class EntraIdService {
+  private jwksCache: { keys: any[]; expiresAt: number } | null = null;
+  private readonly JWKS_TTL_MS = 60 * 60 * 1000; // keys rotate rarely; cache for 1 hour
+
+  private async getJwks(): Promise<any[]> {
+    if (this.jwksCache && Date.now() < this.jwksCache.expiresAt) {
+      return this.jwksCache.keys;
+    }
+    const response = await axios.get(
+      `${authConfig.entraId.authority}/discovery/v2.0/keys`
+    );
+    this.jwksCache = { keys: response.data.keys, expiresAt: Date.now() + this.JWKS_TTL_MS };
+    return this.jwksCache.keys;
+  }
+
   /**
    * Exchange authorization code for tokens
    * CRITICAL: This is SERVER-SIDE ONLY
@@ -77,14 +91,9 @@ export class EntraIdService {
         throw new Error("Invalid token format");
       }
 
-      // Fetch Entra ID public keys for signature verification
-      const jwks = await axios.get(
-        `${authConfig.entraId.authority}/discovery/v2.0/keys`
-      );
-
-      // Find the key matching the token's key ID
+      const keys = await this.getJwks();
       const keyId = decoded.header.kid;
-      const key = jwks.data.keys.find((k: any) => k.kid === keyId);
+      const key = keys.find((k: any) => k.kid === keyId);
       if (!key) {
         throw new Error(`Token key not found: ${keyId}`);
       }
