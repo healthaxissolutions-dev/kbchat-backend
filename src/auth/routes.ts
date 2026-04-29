@@ -12,14 +12,6 @@ const router = Router();
 /**
  * GET /api/auth/nonce
  * Issues a one-time state nonce the frontend must use when starting the OAuth redirect.
- * On callback, the backend validates the nonce to prevent CSRF / authorization-code injection.
- *
- * Flow:
- *  1. Frontend calls GET /api/auth/nonce → receives { state }
- *  2. Frontend appends state to the Entra ID authorization URL
- *  3. Entra ID echoes state back in the redirect
- *  4. Frontend POSTs { code, state } to POST /api/auth/callback
- *  5. Backend consumes (validates + deletes) the nonce before proceeding
  */
 router.get("/nonce", (_req: Request, res: Response) => {
   const state = nonceService.generate();
@@ -29,8 +21,6 @@ router.get("/nonce", (_req: Request, res: Response) => {
 /**
  * POST /api/auth/callback
  * Exchanges an authorization code for an application session.
- *
- * Requires a valid state nonce issued by GET /api/auth/nonce.
  */
 router.post("/callback", async (req: Request, res: Response) => {
   try {
@@ -79,7 +69,7 @@ router.post("/callback", async (req: Request, res: Response) => {
  * POST /api/auth/logout
  * Clears the session cookie.
  */
-router.post("/logout", (req: Request, res: Response) => {
+router.post("/logout", (_req: Request, res: Response) => {
   res.clearCookie(authConfig.cookie.name, {
     httpOnly: authConfig.cookie.httpOnly,
     secure: authConfig.cookie.secure,
@@ -90,31 +80,39 @@ router.post("/logout", (req: Request, res: Response) => {
 
 /**
  * GET /api/auth/me
- * Returns the current authenticated user. Protected.
+ * Returns the current authenticated user, verified live against the DB.
+ * Rejects if the user has been deactivated since the JWT was issued.
  */
-router.get("/me", authenticate, (req: Request, res: Response) => {
-  if (!req.user) {
-    return res.status(401).json({ error: "Not authenticated" });
+router.get("/me", authenticate, async (req: Request, res: Response) => {
+  const user = await userService.getUserWithPermissions(req.user!.sub);
+  if (!user) {
+    return res.status(401).json({ success: false, error: "Session invalid or user deactivated" });
   }
   res.json({
-    id: req.user.sub,
-    email: req.user.email,
-    name: req.user.name,
-    displayName: req.user.displayName,
-    roles: req.user.roles,
+    id: user.id,
+    email: user.email,
+    name: user.name,
+    displayName: user.displayName,
+    roles: user.roles,
   });
 });
 
 /**
  * POST /api/auth/refresh
- * Refreshes the session JWT.
- * TODO: Re-issue a signed token with a fresh expiry once user DB is wired up.
+ * Re-issues a fresh session JWT from live DB state.
+ * Rejects if the user has been deactivated since the original token was issued.
  */
-router.post("/refresh", authenticate, (req: Request, res: Response) => {
-  if (!req.user) {
-    return res.status(401).json({ error: "Not authenticated" });
+router.post("/refresh", authenticate, async (req: Request, res: Response) => {
+  const user = await userService.getUserWithPermissions(req.user!.sub);
+  if (!user) {
+    return res.status(401).json({ success: false, error: "Session invalid or user deactivated" });
   }
-  res.json({ success: true, message: "Token refreshed" });
+  const { token, expiresIn } = jwtService.issueToken(user);
+  res.cookie(authConfig.cookie.name, token, {
+    ...authConfig.cookie,
+    maxAge: expiresIn * 1000,
+  });
+  res.json({ success: true });
 });
 
 export default router;

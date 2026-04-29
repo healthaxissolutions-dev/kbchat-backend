@@ -3,6 +3,7 @@ import cors from "cors";
 import compression from "compression";
 import cookieParser from "cookie-parser";
 import morgan from "morgan";
+import helmet from "helmet";
 
 import chatRagRoute from "./src/routes/chatRag.js";
 import adminServicesRoute from "./src/routes/admin/services.js";
@@ -28,15 +29,16 @@ const corsOptions = {
   optionsSuccessStatus: 200,
 };
 
-app.use(morgan("dev"));
+app.use(helmet());
+app.use(morgan(config.server.env === "production" ? "combined" : "dev"));
 app.use(cors(corsOptions));
 app.use(cookieParser());
-app.use(express.json());
+app.use(express.json({ limit: "1mb" }));
 
 app.use(
   compression({
     filter: (req: Request, res: Response) => {
-      if (req.path.startsWith("/api/chat")) return false;
+      if (req.path.startsWith("/api/chat") || req.path.startsWith("/api/documents")) return false;
       return compression.filter(req, res);
     },
   })
@@ -57,9 +59,8 @@ if (config.server.env !== "production") {
   app.use("/api/test-db", testDBRoute);
 }
 
-const PORT = config.server.port;
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+app.use((_req: Request, res: Response) => {
+  res.status(404).json({ error: "Not Found" });
 });
 
 app.use((err: Error & { status?: number }, _req: Request, res: Response, _next: NextFunction) => {
@@ -67,6 +68,11 @@ app.use((err: Error & { status?: number }, _req: Request, res: Response, _next: 
   res.status(err.status || 500).json({
     error: err.name || "InternalServerError",
     message: err.message,
-    ...(process.env.NODE_ENV !== "production" && { stack: err.stack }),
+    ...(config.server.env !== "production" && { stack: err.stack }),
   });
+});
+
+const PORT = config.server.port;
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
 });

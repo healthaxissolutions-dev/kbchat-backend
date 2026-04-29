@@ -46,6 +46,7 @@ function sendEvent(res: Response, payload: object): void {
    }
 ----------------------------------------------- */
 router.post("/", chatRateLimit, async (req: Request, res: Response) => {
+    let keepAlive: ReturnType<typeof setInterval> | null = null;
     try {
         const { question, service, aimodel, model, stream } = req.body;
         const username = req.user!.email;
@@ -69,6 +70,9 @@ router.post("/", chatRateLimit, async (req: Request, res: Response) => {
             res.setHeader("Cache-Control", "no-cache");
             res.setHeader("Connection", "keep-alive");
             res.flushHeaders();
+            // Heartbeat prevents reverse-proxy idle timeouts during long LLM generations
+            keepAlive = setInterval(() => res.write(":\n\n"), 15000);
+            res.on("close", () => { if (keepAlive) clearInterval(keepAlive); });
         }
 
         /* 1. Embed the question */
@@ -117,6 +121,7 @@ router.post("/", chatRateLimit, async (req: Request, res: Response) => {
                 );
             }
 
+            if (keepAlive) clearInterval(keepAlive);
             sendEvent(res, { type: "done", model: selectedModel, sources });
             res.end();
         } else {
@@ -141,7 +146,7 @@ router.post("/", chatRateLimit, async (req: Request, res: Response) => {
         console.error("❌ RAG chat error:", error.message);
 
         if (res.headersSent) {
-            // SSE stream already open — send error event before closing
+            if (keepAlive) clearInterval(keepAlive);
             sendEvent(res, {
                 type: "error",
                 message: isDev ? error.message : "Internal server error",
