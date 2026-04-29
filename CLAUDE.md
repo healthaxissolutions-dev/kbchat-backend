@@ -64,9 +64,9 @@ In dev mode `server.js` imports directly from `./src/auth/*.ts` (tsx handles it)
 
 ### Data layer
 
-- **Azure SQL / MSSQL** (`src/db.js`) — services, documents metadata, chat logs (schema under `knowledge.*`)
+- **Azure SQL / MSSQL** (`src/db.js`) — services, documents metadata, chat logs (schema under `knowledge.*`). Pool is created lazily on first query and auto-resets on error so the next query reconnects. Queries use `?` positional placeholders which are rewritten to `@p0`, `@p1`, … at call time.
 - **Supabase** — pgvector store for document chunks; searched via `match_mxbai_chunks` RPC
-- **Azure Blob Storage** — PDF source files; accessed via connection string (dev) or Managed Identity (prod)
+- **Azure Blob Storage** — PDF source files; all blob access goes through the singleton in `src/utils/blobClient.js`. Use `getBlobByUrl(url)` to resolve a `BlobClient` from any full HTTPS blob URL without re-instantiating the service client.
 
 ### Environment variables
 
@@ -92,6 +92,6 @@ Copy `.env.example` to `.env`. Key groupings:
 - System prompt stored in a flat file (`src/prompts/systemPrompt.txt`) is ephemeral on Azure App Service — move to DB
 - `user.service.ts` stubs: `syncUserFromEntraId` doesn't persist to DB, `getUserWithPermissions` always returns null
 - Metadata filter in `searchDocuments` is silently ignored (the Supabase RPC doesn't support it)
-- Blob client is duplicated between `blobClient.js` and `documents.ts` — consolidate to the singleton
-- SQL parameterization in `db.js` uses a hand-rolled `?`→`@p0` replacement — switch to mssql typed inputs
-- DB connection pool has no reconnect logic for idle-timeout drops
+- No response compression middleware
+- Inconsistent error response shapes across routes (`{ error }` vs `{ success, error }` vs `{ error, detail }`)
+- Full TypeScript migration pending for `db.js`, `config.js`, and admin routes

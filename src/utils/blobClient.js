@@ -40,3 +40,17 @@ export const getContainer = () => {
 export const getBlob = (blobName) => {
   return getContainer().getBlobClient(blobName);
 };
+
+/**
+ * Resolve a BlobClient from a full HTTPS blob URL.
+ * URL format: https://<account>.blob.core.windows.net/<container>/<path...>
+ * Allows callers to work with blobs outside the default container without
+ * re-instantiating BlobServiceClient.
+ */
+export const getBlobByUrl = (blobUrl) => {
+  const withoutScheme = blobUrl.replace("https://", "");
+  const parts = withoutScheme.split("/");
+  const container = parts[1];
+  const blobName = parts.slice(2).join("/");
+  return blobServiceClient.getContainerClient(container).getBlobClient(blobName);
+};

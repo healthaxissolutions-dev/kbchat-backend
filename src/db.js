@@ -1,40 +1,24 @@
 import sql from "mssql";
 import { config } from "./config.js";
 
-let pool;
-
-// Build config based on environment
 function getDbConfig() {
-  // ✅ PRIORITY 1 — Azure Managed Identity (App Service)
   if (config.sql.auth === "managed_identity") {
     console.log("🟩 Using Azure Managed Identity for SQL");
-
     return {
       server: config.sql.server,
       database: config.sql.name,
-      options: {
-        encrypt: true
-      },
-      authentication: {
-        type: "azure-active-directory-default"
-      },
-      pool: {
-        max: 10,
-        min: 0,
-        idleTimeoutMillis: 30000
-      }
+      options: { encrypt: true },
+      authentication: { type: "azure-active-directory-default" },
+      pool: { max: 10, min: 0, idleTimeoutMillis: 30000 },
     };
   }
 
-  // ✅ PRIORITY 2 — Full connection string
   if (config.sql.connectionString) {
     console.log("🟦 Using SQL connection string mode");
     return config.sql.connectionString;
   }
 
-  // ✅ PRIORITY 3 — Local SQL username/password
   console.log("🟨 Using SQL username/password mode");
-
   return {
     user: config.sql.user,
     password: config.sql.pass,
@@ -42,37 +26,57 @@ function getDbConfig() {
     database: config.sql.name,
     options: {
       encrypt: config.sql.encrypt,
-      trustServerCertificate: config.server.env === "development"
+      trustServerCertificate: config.server.env === "development",
     },
-    pool: {
-      max: 10,
-      min: 0,
-      idleTimeoutMillis: 30000
-    }
+    pool: { max: 10, min: 0, idleTimeoutMillis: 30000 },
   };
 }
 
-// Main query function
-export async function queryDb(query, params = []) {
-  try {
-    if (!pool) {
-      const dbConfig = getDbConfig();
-      pool = await sql.connect(dbConfig);
-      console.log("✔ Connected to SQL database");
-    }
+let pool = null;
+let connectPromise = null;
 
-    const request = pool.request();
+async function getPool() {
+  if (pool) return pool;
 
-    // Prepare SQL parameters @p0, @p1, ...
-    params.forEach((value, index) => {
-      request.input(`p${index}`, value);
+  // Prevent a thundering herd of reconnects under concurrent requests
+  if (connectPromise) return connectPromise;
+
+  connectPromise = (async () => {
+    const newPool = await sql.connect(getDbConfig());
+
+    // Reset pool reference on error so the next query triggers a fresh connect
+    newPool.on("error", (err) => {
+      console.error("❌ SQL pool error — resetting connection:", err.message);
+      pool = null;
+      connectPromise = null;
     });
 
-    let paramIndex = 0;
-    const sqlQuery = query.replace(/\?/g, () => `@p${paramIndex++}`);
+    pool = newPool;
+    connectPromise = null;
+    console.log("✔ Connected to SQL database");
+    return pool;
+  })();
 
+  return connectPromise;
+}
+
+export async function queryDb(query, params = []) {
+  const placeholders = (query.match(/\?/g) || []).length;
+  if (placeholders !== params.length) {
+    throw new Error(
+      `SQL query has ${placeholders} placeholder(s) but ${params.length} param(s) were provided`
+    );
+  }
+
+  let i = 0;
+  const sqlQuery = query.replace(/\?/g, () => `@p${i++}`);
+
+  const p = await getPool();
+  const request = p.request();
+  params.forEach((value, index) => request.input(`p${index}`, value));
+
+  try {
     return await request.query(sqlQuery);
-
   } catch (err) {
     console.error("❌ Database query error:", err);
     throw err;

@@ -4,10 +4,8 @@
 // Results are cached in memory (default TTL: 10 minutes).
 
 import express, { Request, Response } from "express";
-import { BlobServiceClient } from "@azure/storage-blob";
-import { DefaultAzureCredential } from "@azure/identity";
 // @ts-ignore
-import { config } from "../config.js";
+import { getBlobByUrl } from "../utils/blobClient.js";
 // @ts-ignore
 import { resolveServiceId } from "../services/serviceResolver.js";
 // @ts-ignore
@@ -15,26 +13,8 @@ import { resolveDocuments } from "../services/documentResolver.js";
 
 const router = express.Router();
 
-/* -----------------------------------------------
-   Blob client (mirrors setup in chat.js)
------------------------------------------------ */
-const blobService =
-    config.server.env === "production" && config.storage.useMI
-        ? new BlobServiceClient(
-            `https://${config.storage.account}.blob.core.windows.net`,
-            new DefaultAzureCredential()
-        )
-        : BlobServiceClient.fromConnectionString(process.env.AZURE_STORAGE_CONNECTION_STRING!);
-
 async function downloadPdf(blobUrl: string): Promise<Buffer> {
-    // blobUrl format: https://<account>.blob.core.windows.net/<container>/<path>
-    const cleanUrl = blobUrl.replace("https://", "");
-    const parts = cleanUrl.split("/");
-    const containerName = parts[1];
-    const blobName = parts.slice(2).join("/");
-
-    const container = blobService.getContainerClient(containerName);
-    const blob = container.getBlobClient(blobName);
+    const blob = getBlobByUrl(blobUrl);
     const download = await blob.download();
 
     return new Promise<Buffer>((resolve, reject) => {
@@ -100,22 +80,17 @@ router.get("/pdf", async (req: Request, res: Response) => {
 
         console.log(`[PDF cache MISS] ${cacheKey} — fetching from blob...`);
 
-        /* -- Resolve service + documents -- */
         const serviceId = await resolveServiceId(service);
         const documents = await resolveDocuments(serviceId, submodule);
 
         if (documents.length === 0) {
-            return res.status(404).json({
-                error: "No documents found for this service/submodule.",
-            });
+            return res.status(404).json({ error: "No documents found for this service/submodule." });
         }
 
-        /* -- Download the first document -- */
         const doc = documents[0];
         console.log(`🔗 [PDF Serving] Document ID: ${doc.document_id}, Blob Path: ${doc.blob_directory}`);
         const buf = await downloadPdf(doc.blob_directory);
 
-        // Derive a clean filename from the blob path
         const blobParts = doc.blob_directory.split("/");
         const filename = blobParts[blobParts.length - 1] || `${service}-${submodule}.pdf`;
 
