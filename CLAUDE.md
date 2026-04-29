@@ -41,7 +41,7 @@ Selecting the model: pass `aimodel: "gemini"` or `model: "gemini"` in the reques
 
 Rate limit: 5 requests per minute per IP (`src/middleware/chatRateLimit.js`).
 
-Note: the `service` filter passed to `searchDocuments` is currently ignored by the Supabase RPC — the `match_mxbai_chunks` function does not support metadata filtering.
+Note: the `service` field in the request body is logged but not used for filtering — `match_mxbai_chunks` searches all chunks. A filtered RPC variant is needed in Supabase before service-scoped search can be enabled.
 
 ### Auth module (src/auth/)
 
@@ -64,7 +64,8 @@ In dev mode `server.js` imports directly from `./src/auth/*.ts` (tsx handles it)
 
 ### Data layer
 
-- **Azure SQL / MSSQL** (`src/db.js`) — services, documents metadata, chat logs (schema under `knowledge.*`). Pool is created lazily on first query and auto-resets on error so the next query reconnects. Queries use `?` positional placeholders which are rewritten to `@p0`, `@p1`, … at call time.
+- **Azure SQL / MSSQL** (`src/db.js`) — services, documents metadata, chat logs (schema under `knowledge.*`). Pool is created lazily on first query and auto-resets on error so the next query reconnects. Queries use `?` positional placeholders which are rewritten to `@p0`, `@p1`, … at call time. Placeholder count is validated against params length at runtime.
+- **Error responses** — all application routes use `sendError(res, status, message, detail?)` from `src/utils/error.js`. The `detail` field (raw error message) is included only in non-production environments. Auth routes keep their own `{ success, error }` envelope.
 - **Supabase** — pgvector store for document chunks; searched via `match_mxbai_chunks` RPC
 - **Azure Blob Storage** — PDF source files; all blob access goes through the singleton in `src/utils/blobClient.js`. Use `getBlobByUrl(url)` to resolve a `BlobClient` from any full HTTPS blob URL without re-instantiating the service client.
 
@@ -91,7 +92,5 @@ Copy `.env.example` to `.env`. Key groupings:
 
 - System prompt stored in a flat file (`src/prompts/systemPrompt.txt`) is ephemeral on Azure App Service — move to DB
 - `user.service.ts` stubs: `syncUserFromEntraId` doesn't persist to DB, `getUserWithPermissions` always returns null
-- Metadata filter in `searchDocuments` is silently ignored (the Supabase RPC doesn't support it)
-- No response compression middleware
-- Inconsistent error response shapes across routes (`{ error }` vs `{ success, error }` vs `{ error, detail }`)
+- Service-scoped RAG search not yet implemented — `searchDocuments` searches all chunks; add a filtered Supabase RPC when ready
 - Full TypeScript migration pending for `db.js`, `config.js`, and admin routes

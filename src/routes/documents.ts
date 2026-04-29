@@ -10,6 +10,8 @@ import { getBlobByUrl } from "../utils/blobClient.js";
 import { resolveServiceId } from "../services/serviceResolver.js";
 // @ts-ignore
 import { resolveDocuments } from "../services/documentResolver.js";
+// @ts-ignore
+import { sendError } from "../utils/error.js";
 
 const router = express.Router();
 
@@ -64,7 +66,7 @@ router.get("/pdf", async (req: Request, res: Response) => {
         console.log(`📂 [PDF Request] Service: ${service}, Submodule: ${submodule}`);
 
         if (!service || service.trim() === "") {
-            return res.status(400).json({ error: "'service' query param is required." });
+            return sendError(res, 400, "'service' query param is required.");
         }
 
         const cacheKey = `${service}:${submodule}`;
@@ -84,7 +86,7 @@ router.get("/pdf", async (req: Request, res: Response) => {
         const documents = await resolveDocuments(serviceId, submodule);
 
         if (documents.length === 0) {
-            return res.status(404).json({ error: "No documents found for this service/submodule." });
+            return sendError(res, 404, "No documents found for this service/submodule.");
         }
 
         const doc = documents[0];
@@ -104,7 +106,7 @@ router.get("/pdf", async (req: Request, res: Response) => {
     } catch (err) {
         const error = err as Error;
         console.error("❌ PDF route error:", error.message);
-        return res.status(500).json({ error: "Internal server error", detail: error.message });
+        return sendError(res, 500, "Internal server error", error.message);
     }
 });
 

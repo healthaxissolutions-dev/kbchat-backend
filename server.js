@@ -1,5 +1,6 @@
 import express from "express";
 import cors from "cors";
+import compression from "compression";
 import cookieParser from "cookie-parser";
 import morgan from "morgan";
 
@@ -44,6 +45,14 @@ app.use(morgan("dev"));
 app.use(cors(corsOptions));
 app.use(cookieParser());
 app.use(express.json());
+
+// Compress all responses except SSE streams (buffering breaks real-time delivery)
+app.use(compression({
+  filter: (req, res) => {
+    if (req.path.startsWith("/api/chat")) return false;
+    return compression.filter(req, res);
+  },
+}));
 
 // Auth routes (must be before protected routes)
 app.use("/api/auth", authRoutes);

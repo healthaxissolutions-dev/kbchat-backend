@@ -29,14 +29,14 @@ export interface DocumentChunk {
 
 /**
  * Search for document chunks similar to the given embedding.
- * RPC signature: match_mxbai_chunks(match_count, match_threshold, query_embedding)
- * Note: metadata_filter is not supported by this function.
+ * RPC: match_mxbai_chunks(query_embedding, match_count, match_threshold)
+ * Service/metadata filtering is not supported by the current RPC — implement
+ * a filtered variant in Supabase and add a parameter here when ready.
  */
 export async function searchDocuments(
     embedding: number[],
     matchCount: number = 5,
-    matchThreshold: number = 0.3,
-    _metadataFilter: Record<string, any> = {}  // reserved for future use
+    matchThreshold: number = 0.3
 ): Promise<DocumentChunk[]> {
     const supabase = getClient();
 

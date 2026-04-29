@@ -9,10 +9,14 @@ import { searchDocuments, DocumentChunk } from "../services/supabase.js";
 import { getSystemPrompt } from "../services/systemPrompt.js";
 // @ts-ignore
 import { chatRateLimit } from "../middleware/chatRateLimit.js";
+// @ts-ignore
+import { sendError } from "../utils/error.js";
 
 const router = express.Router();
 
 type AiModel = "ollama" | "gemini";
+
+const isDev = process.env.NODE_ENV !== "production";
 
 /** Append context chunks to the base system prompt. */
 function buildSystemPrompt(baseInstruction: string, chunks: DocumentChunk[]): string {
@@ -37,7 +41,7 @@ function sendEvent(res: Response, payload: object): void {
    Body: {
      question: string,
      username: string,
-     service?: string,
+     service?: string,        // informational only — not used for filtering yet
      aimodel?: "ollama" | "gemini",   // default: "ollama"
      model?: "ollama" | "gemini",     // alias for aimodel
      stream?: boolean                 // default: false
@@ -47,15 +51,12 @@ router.post("/", chatRateLimit, async (req: Request, res: Response) => {
     try {
         const { question, username, service, aimodel, model, stream } = req.body;
 
-
-        console.log(`🚀 [OllamaStream] stream: ${stream}`);
-
         if (!question || typeof question !== "string" || question.trim() === "") {
-            return res.status(400).json({ error: "'question' is required." });
+            return sendError(res, 400, "'question' is required.");
         }
 
         if (!username || typeof username !== "string") {
-            return res.status(400).json({ error: "'username' is required." });
+            return sendError(res, 400, "'username' is required.");
         }
 
         const selectedModel: AiModel =
@@ -75,29 +76,22 @@ router.post("/", chatRateLimit, async (req: Request, res: Response) => {
             res.flushHeaders();
         }
 
-        /* -----------------------------------------------
-           1️⃣  Embed the question
-        ----------------------------------------------- */
+        /* 1. Embed the question */
         if (useStream) sendEvent(res, { type: "status", message: "Generating embedding…" });
         console.log("🔍 Generating embedding via Ollama...");
         const embedding = await generateEmbedding(question);
 
-        /* -----------------------------------------------
-           2️⃣  Retrieve relevant chunks from Supabase
-        ----------------------------------------------- */
+        /* 2. Retrieve relevant chunks from Supabase */
         if (useStream) sendEvent(res, { type: "status", message: "Searching knowledge base…" });
         console.log("📚 Searching Supabase vector store...");
-        const filter = service ? { service } : {};
-        const chunks = await searchDocuments(embedding, 5, 0.3, filter);
+        const chunks = await searchDocuments(embedding, 5, 0.3);
 
         console.log(`✅ Retrieved ${chunks.length} relevant chunk(s).`);
         if (chunks.length === 0) {
             console.warn("⚠️ No relevant chunks found. Answering with no context.");
         }
 
-        /* -----------------------------------------------
-           3️⃣  Build prompt from file-based system instruction
-        ----------------------------------------------- */
+        /* 3. Build system prompt */
         if (useStream) sendEvent(res, { type: "status", message: "Generating answer…" });
         const baseInstruction = await getSystemPrompt();
         const systemPrompt = buildSystemPrompt(baseInstruction, chunks);
@@ -108,11 +102,8 @@ router.post("/", chatRateLimit, async (req: Request, res: Response) => {
             metadata: c.metadata,
         }));
 
-        /* -----------------------------------------------
-           4️⃣  Generate answer — streaming or non-streaming
-        ----------------------------------------------- */
+        /* 4. Generate answer */
         if (useStream) {
-            // --- STREAMING PATH ---
             if (selectedModel === "gemini") {
                 console.log("🤖 Streaming answer via Gemini...");
                 await geminiChatStream(systemPrompt, question, (token) => {
@@ -134,7 +125,6 @@ router.post("/", chatRateLimit, async (req: Request, res: Response) => {
             sendEvent(res, { type: "done", model: selectedModel, sources });
             res.end();
         } else {
-            // --- NON-STREAMING PATH (existing behaviour) ---
             let answer: string;
 
             if (selectedModel === "gemini") {
@@ -148,19 +138,22 @@ router.post("/", chatRateLimit, async (req: Request, res: Response) => {
                 ]);
             }
 
-            console.log(`✅ Answer fuckingly generated (${answer.length} chars).`);
+            console.log(`✅ Answer generated (${answer.length} chars).`);
             return res.json({ answer, model: selectedModel, sources });
         }
     } catch (err) {
         const error = err as Error;
         console.error("❌ RAG chat error:", error.message);
 
-        // If SSE already started, send error as event before closing
         if (res.headersSent) {
-            sendEvent(res, { type: "error", message: error.message });
+            // SSE stream already open — send error event before closing
+            sendEvent(res, {
+                type: "error",
+                message: isDev ? error.message : "Internal server error",
+            });
             res.end();
         } else {
-            return res.status(500).json({ error: "Internal server error", detail: error.message });
+            return sendError(res, 500, "Internal server error", error.message);
         }
     }
 });
