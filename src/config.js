@@ -28,16 +28,19 @@ export const config = {
     auth: process.env.DB_AUTH, // "sql" | "managed_identity"
   },
 
+  // Legacy Azure Cognitive Search — not used by the active chat route (Supabase/Ollama).
+  // Values are optional; keeping the shape so dead code that still references config.search doesn't throw.
   search: {
-    endpoint: required("SEARCH_ENDPOINT"),
-    index: required("SEARCH_INDEX"),
-    key: required("SEARCH_API_KEY"),
+    endpoint: process.env.SEARCH_ENDPOINT || "",
+    index: process.env.SEARCH_INDEX || "",
+    key: process.env.SEARCH_API_KEY || "",
   },
 
+  // Legacy Azure OpenAI — not used by the active chat route (Ollama/Gemini).
   openai: {
-    endpoint: required("AZURE_OPENAI_ENDPOINT"),
-    key: required("AZURE_OPENAI_KEY"),
-    deployment: required("AZURE_OPENAI_DEPLOYMENT"),
+    endpoint: process.env.AZURE_OPENAI_ENDPOINT || "",
+    key: process.env.AZURE_OPENAI_KEY || "",
+    deployment: process.env.AZURE_OPENAI_DEPLOYMENT || "",
   },
 
   storage: {

@@ -2,27 +2,27 @@
 
 A Node.js + Express backend that integrates:
 - Microsoft SQL Server (Azure SQL)
-- Azure Cognitive Search
-- Azure OpenAI (GPT-4.1-mini deployment)
-- Azure Blob Storage
+- Supabase pgvector for RAG document retrieval
+- Ollama (local) and Google Gemini for LLM inference
+- Azure Entra ID for OAuth 2.0 authentication
+- Azure Blob Storage for PDF source files
 
-Provides chat functionality, embedding/vector search, service management, and document ingestion.
+Provides RAG chat, document management, service management, and JWT-based authentication.
 
 ---
 
 ## 🚀 Features
 
-- RESTful API (Express)
-- MSSQL connection pooling
-- Secure environment configuration
-- Azure Cognitive Search hybrid search
-- Azure OpenAI Chat completion
-- File upload + blob storage upload (in development)
-- Modular route structure
+- RESTful API (Express) with SSE streaming for chat
+- Azure Entra ID OAuth 2.0 with CSRF-protected callback and HttpOnly JWT cookie
+- RAG pipeline: Ollama embeddings → Supabase vector search → Ollama or Gemini generation
+- MSSQL connection pooling for services and document metadata
+- Admin API for services, documents, and system prompt management (admin role required)
+- Azure Blob Storage for PDFs (connection string in dev, Managed Identity in prod)
 
 **Upcoming**
-- Add admin auth middleware
-- Frontend implementation (users - chat, admin - documents/services management)
+- Persist users and system prompt to SQL (currently in-memory / flat file)
+- Frontend implementation (chat UI, admin panel)
 
 ---
 
@@ -30,26 +30,37 @@ Provides chat functionality, embedding/vector search, service management, and do
 ```
 project/
 │
-├── server.js
+├── server.js               # Entry point; wires routes and middleware
 │
 ├── src/
-│ ├── db.js
-│ ├── config.js
-│ │
-│ ├── routes/
-│ │ ├── chat.js
-│ │ ├── services.js
-│ │ ├── upload.js
-│ │ │
-│ │ └── test/
-│ │  ├── testDB.js
-│ │  └── testBackend.js
-│ │
-│ └── utils/
-│   ├── blobClient.js
-│   └── validateEnv.js
+│   ├── db.js               # MSSQL connection pool and query helper
+│   ├── config.js           # Environment variable loading
+│   │
+│   ├── auth/               # Azure Entra ID OAuth module (TypeScript)
+│   │   ├── routes.ts
+│   │   ├── config.ts
+│   │   ├── types.ts
+│   │   ├── middleware/     # authenticate.ts, authorize.ts
+│   │   └── services/       # entraId, jwt, user, nonce services
+│   │
+│   ├── routes/
+│   │   ├── chatRag.ts      # RAG chat (main feature)
+│   │   ├── documents.ts    # PDF serving from Blob Storage
+│   │   └── admin/          # Services, documents, system prompt CRUD
+│   │
+│   ├── services/
+│   │   ├── ollama.ts       # Embeddings + chat via local Ollama
+│   │   ├── gemini.ts       # Chat via Google Gemini
+│   │   ├── supabase.ts     # pgvector similarity search
+│   │   └── systemPrompt.ts # System prompt loading (file-backed, cached)
+│   │
+│   ├── prompts/
+│   │   └── systemPrompt.txt
+│   │
+│   └── utils/
+│       ├── blobClient.js
+│       └── validateEnv.js
 │
-├── uploads/ # Temp upload folder
 └── .env
 ```
 
@@ -59,36 +70,44 @@ project/
 
 Create a `.env`:
 
-```dotenv
-PORT=5000
-NODE_ENV=development
+See `.env.example` for the full list. Minimum required for local development:
 
-# SQL
+```dotenv
+PORT=4000
+NODE_ENV=development
+FRONTEND_URL=http://localhost:3000
+BACKEND_URL=http://localhost:4000
+
+# Azure Entra ID (OAuth)
+AZURE_AD_CLIENT_ID=
+AZURE_AD_CLIENT_SECRET=
+AZURE_AD_TENANT_ID=
+OAUTH_REDIRECT_URI=http://localhost:3000/api/auth/callback
+
+# JWT
+JWT_SECRET=
+
+# SQL Server
 DB_SERVER=
 DB_NAME=
 DB_USER=
-DB_PASS=
+DB_PASSWORD=
 DB_ENCRYPT=true
 
-# If using connection string (prod)
-DB_CONNECTION_STRING=""
+# Supabase (pgvector)
+SUPABASE_URL=
+SUPABASE_KEY=
 
-# Azure Cognitive Search
-SEARCH_ENDPOINT=
-SEARCH_INDEX=
-SEARCH_API_KEY=
+# Ollama (runs locally — no key needed)
+OLLAMA_BASE_URL=http://localhost:11434
 
-# Azure OpenAI
-AZURE_OPENAI_ENDPOINT=
-AZURE_OPENAI_KEY=
-AZURE_OPENAI_DEPLOYMENT=
-
-# Storage
+# Azure Storage
 AZURE_STORAGE_ACCOUNT=
 AZURE_STORAGE_CONTAINER=
 AZURE_STORAGE_CONNECTION_STRING=
-AZURE_STORAGE_USE_MI=false
 ```
+
+> Azure Cognitive Search and Azure OpenAI variables are accepted by config but not required — the active chat route uses Supabase + Ollama/Gemini instead.
 ---
 
 ## 🛠 Installation
@@ -195,25 +214,14 @@ created_date (datetime)
 ```
 ---
 
-## 📄 PDF Extraction Logic
+## 🤖 Chat Pipeline
 
-- PDF is downloaded from Azure Blob Storage
-- Pages can be optionally skipped via page_to_skip
-- Extracted text is sent to Azure OpenAI for grounded Q&A
+1. Ollama generates an embedding for the user's question
+2. Supabase pgvector similarity search returns the top-5 relevant document chunks (≥ 0.3 threshold)
+3. Chunks are appended to the base system prompt from `src/prompts/systemPrompt.txt`
+4. Ollama (`llama3.2` by default) or Gemini generates the answer
 
----
-
-## 🤖 Chat Completion (Azure OpenAI)
-
-Uses:
-
-```json
-client.chat.completions.create({
-  model: config.openai.deployment,
-  messages: [...]
-})
-```
-> Response is logged into chat_logs.
+Pass `"aimodel": "gemini"` in the request body to use Gemini instead of Ollama. Pass `"stream": true` for SSE token streaming.
 
 ---
 
@@ -236,9 +244,9 @@ client.chat.completions.create({
 
 ## 🐞 Troubleshooting
 
-### 401 from `/api/chat` but `/api/test-db` works
+### Chat returns no results
 
-Usually caused by unquoted `.env` values or invalid Azure OpenAI endpoint format.
+Check that Ollama is running (`http://localhost:11434`) and the `mxbai-embed-large` and `llama3.2` models are pulled (`ollama pull mxbai-embed-large && ollama pull llama3.2`).
 
 ### PDF contains no text
 

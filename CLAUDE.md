@@ -79,7 +79,7 @@ Copy `.env.example` to `.env`. Key groupings:
 - **Ollama**: `OLLAMA_BASE_URL` (default `http://localhost:11434`), `OLLAMA_MODEL`, `OLLAMA_EMBEDDING_MODEL`
 - **Gemini**: `GEMINI_API_KEY`, `GEMINI_MODEL` (default `gemini-2.0-flash`)
 - **Azure Storage**: `AZURE_STORAGE_ACCOUNT`, `AZURE_STORAGE_CONTAINER`, `AZURE_STORAGE_CONNECTION_STRING`, `AZURE_STORAGE_USE_MI`
-- **Azure Search / OpenAI**: still required by `src/config.js` at startup (legacy — not used by the active chat route; use dummy values locally if not needed)
+- **Azure Search / OpenAI**: accepted by `src/config.js` but optional — not used by the active chat route
 
 `src/config.js` calls `process.exit(1)` for several missing vars at startup — check its `required()` calls if the server won't start.
 
@@ -89,9 +89,9 @@ Copy `.env.example` to `.env`. Key groupings:
 
 ### Known remaining issues (to address next)
 
-- `src/config.js` crashes on startup for Azure OpenAI/Search vars that the active chat route no longer uses — make those optional
 - System prompt stored in a flat file (`src/prompts/systemPrompt.txt`) is ephemeral on Azure App Service — move to DB
 - `user.service.ts` stubs: `syncUserFromEntraId` doesn't persist to DB, `getUserWithPermissions` always returns null
 - Metadata filter in `searchDocuments` is silently ignored (the Supabase RPC doesn't support it)
-- Blob client is duplicated across `blobClient.js`, `chat.js` (dead), and `documents.ts`
-- Dead code: `src/routes/chat.js` and `src/services/azureOpenAI.js` are no longer on any active route
+- Blob client is duplicated between `blobClient.js` and `documents.ts` — consolidate to the singleton
+- SQL parameterization in `db.js` uses a hand-rolled `?`→`@p0` replacement — switch to mssql typed inputs
+- DB connection pool has no reconnect logic for idle-timeout drops
