@@ -53,6 +53,7 @@ Full Azure Entra ID OAuth 2.0 flow. All files are TypeScript:
 - **user.service.ts** — maps Entra ID claims to an internal `AppUser` with RBAC roles; `getPermissionsForRoles` computes permissions from roles (no DB yet — TODO)
 - **authenticate.ts** — reads JWT from `app_session` HttpOnly cookie, attaches payload to `req.user`
 - **authorize.ts** — role-based (`authorize(["admin"])`) and permission-based (`requirePermission("delete:documents")`) middleware; both enforce using JWT claims
+- **user.service.ts** — upserts user to `knowledge.users` on every login via T-SQL `MERGE`; `getUserWithPermissions` reads live roles from DB; `hasPermission` derives from DB roles (not JWT). DB failure does not block login.
 
 OAuth frontend flow (must be followed in order):
 1. `GET /api/auth/nonce` → receive `{ state }`
@@ -64,8 +65,37 @@ In dev mode `server.js` imports directly from `./src/auth/*.ts` (tsx handles it)
 
 ### Data layer
 
-- **Azure SQL / MSSQL** (`src/db.js`) — services, documents metadata, chat logs (schema under `knowledge.*`). Pool is created lazily on first query and auto-resets on error so the next query reconnects. Queries use `?` positional placeholders which are rewritten to `@p0`, `@p1`, … at call time. Placeholder count is validated against params length at runtime.
-- **Error responses** — all application routes use `sendError(res, status, message, detail?)` from `src/utils/error.js`. The `detail` field (raw error message) is included only in non-production environments. Auth routes keep their own `{ success, error }` envelope.
+- **Azure SQL / MSSQL** (`src/db.js`) — services, documents metadata, chat logs, users, system prompt (all under `knowledge.*`). Pool is created lazily on first query and auto-resets on error so the next query reconnects. Queries use `?` positional placeholders rewritten to `@p0`, `@p1`, … at call time with count validation.
+- **Error responses** — all application routes use `sendError(res, status, message, detail?)` from `src/utils/error.js`. The `detail` field is included only outside production. Auth routes keep their own `{ success, error }` envelope.
+
+### Required SQL migrations
+
+Run these once per environment before first deploy:
+
+```sql
+-- System prompt storage (replaces bundled .txt file)
+CREATE TABLE knowledge.system_prompts (
+  name         VARCHAR(100)   NOT NULL PRIMARY KEY,
+  prompt       NVARCHAR(MAX)  NOT NULL,
+  updated_date DATETIME2      NOT NULL DEFAULT SYSDATETIME()
+);
+
+-- User persistence and RBAC
+CREATE TABLE knowledge.users (
+  id           VARCHAR(100)   NOT NULL PRIMARY KEY,
+  email        VARCHAR(255)   NOT NULL,
+  name         VARCHAR(255),
+  display_name VARCHAR(255),
+  entra_oid    VARCHAR(100)   NOT NULL,
+  entra_upn    VARCHAR(255),
+  roles        NVARCHAR(MAX)  NOT NULL DEFAULT '["viewer"]',
+  is_active    BIT            NOT NULL DEFAULT 1,
+  created_date DATETIME2      NOT NULL DEFAULT SYSDATETIME(),
+  last_login   DATETIME2
+);
+```
+
+If the migrations haven't been run: `system_prompts` falls back to the bundled `src/prompts/systemPrompt.txt`; user login still succeeds (DB failure is logged but not fatal).
 - **Supabase** — pgvector store for document chunks; searched via `match_mxbai_chunks` RPC
 - **Azure Blob Storage** — PDF source files; all blob access goes through the singleton in `src/utils/blobClient.js`. Use `getBlobByUrl(url)` to resolve a `BlobClient` from any full HTTPS blob URL without re-instantiating the service client.
 
@@ -90,7 +120,5 @@ Copy `.env.example` to `.env`. Key groupings:
 
 ### Known remaining issues (to address next)
 
-- System prompt stored in a flat file (`src/prompts/systemPrompt.txt`) is ephemeral on Azure App Service — move to DB
-- `user.service.ts` stubs: `syncUserFromEntraId` doesn't persist to DB, `getUserWithPermissions` always returns null
 - Service-scoped RAG search not yet implemented — `searchDocuments` searches all chunks; add a filtered Supabase RPC when ready
 - Full TypeScript migration pending for `db.js`, `config.js`, and admin routes

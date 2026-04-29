@@ -1,78 +1,133 @@
 /**
  * User Service
- * Handles user mapping, RBAC, and database integration
+ * Persists users to SQL on login and provides DB-backed permission lookup.
  *
- * Responsibilities:
- * - Map Entra ID users to internal users
- * - Apply role mappings and RBAC
- * - Database sync (create, update, provisioning)
- * - Permission computation
+ * Required migration:
+ *   CREATE TABLE knowledge.users (
+ *     id           VARCHAR(100)   NOT NULL PRIMARY KEY,
+ *     email        VARCHAR(255)   NOT NULL,
+ *     name         VARCHAR(255),
+ *     display_name VARCHAR(255),
+ *     entra_oid    VARCHAR(100)   NOT NULL,
+ *     entra_upn    VARCHAR(255),
+ *     roles        NVARCHAR(MAX)  NOT NULL DEFAULT '["viewer"]',
+ *     is_active    BIT            NOT NULL DEFAULT 1,
+ *     created_date DATETIME2      NOT NULL DEFAULT SYSDATETIME(),
+ *     last_login   DATETIME2
+ *   );
  */
 
 import { EntraIdTokenPayload, AppUser } from "../types.js";
 import { authConfig } from "../config.js";
+// @ts-ignore
+import { queryDb } from "../../db.js";
 
 export class UserService {
   /**
-   * Create or update application user from Entra ID claims
-   * In production: sync with database, apply role mappings
-   *
-   * @param entraIdClaims Verified token claims from Entra ID
-   * @returns Application user with roles and permissions
+   * Upsert the authenticated user into knowledge.users and return an AppUser.
+   * DB failure does NOT block login — the user is still authenticated, error is logged.
    */
-  async syncUserFromEntraId(
-    entraIdClaims: EntraIdTokenPayload
-  ): Promise<AppUser> {
-    // TODO: In production, integrate with database
-    // 1. Check if user exists (by OID)
-    // 2. Create if new, update if exists
-    // 3. Fetch user permissions from RBAC table
-    // 4. Apply role mappings from configuration
-
+  async syncUserFromEntraId(entraIdClaims: EntraIdTokenPayload): Promise<AppUser> {
     const entraRoles = entraIdClaims.roles || [];
-
-    // Map Entra ID roles to internal roles
     const internalRoles = entraRoles
       .map((role) => authConfig.roleMapping[role])
       .filter((role): role is string => role !== undefined);
-
-    // Default to 'viewer' if no matching roles
     const finalRoles = internalRoles.length > 0 ? internalRoles : ["viewer"];
 
     const user: AppUser = {
-      id: entraIdClaims.oid, // Use Entra ID OID as internal ID
+      id: entraIdClaims.oid,
       email: entraIdClaims.email || entraIdClaims.upn || "",
       name: entraIdClaims.name || "User",
       displayName: entraIdClaims.name || "User",
-      entraId: {
-        oid: entraIdClaims.oid,
-        upn: entraIdClaims.upn || "",
-      },
+      entraId: { oid: entraIdClaims.oid, upn: entraIdClaims.upn || "" },
       roles: finalRoles,
       permissions: this.getPermissionsForRoles(finalRoles),
       lastLogin: new Date(),
       isActive: true,
     };
 
-    // TODO: Save to database
-    // await db.query(
-    //   `INSERT INTO users (id, email, display_name, roles, last_login)
-    //    VALUES (@id, @email, @displayName, @roles, @lastLogin)
-    //    ON CONFLICT(id) DO UPDATE SET last_login = @lastLogin`
-    // );
+    try {
+      // MERGE: update last_login + roles on subsequent logins; insert on first login
+      await queryDb(
+        `MERGE knowledge.users AS target
+         USING (SELECT ? AS id, ? AS email, ? AS name, ? AS display_name,
+                       ? AS entra_oid, ? AS entra_upn, ? AS roles) AS source
+         ON target.id = source.id
+         WHEN MATCHED THEN
+           UPDATE SET email        = source.email,
+                      name         = source.name,
+                      display_name = source.display_name,
+                      entra_upn    = source.entra_upn,
+                      roles        = source.roles,
+                      last_login   = SYSDATETIME()
+         WHEN NOT MATCHED THEN
+           INSERT (id, email, name, display_name, entra_oid, entra_upn,
+                   roles, is_active, created_date, last_login)
+           VALUES (source.id, source.email, source.name, source.display_name,
+                   source.entra_oid, source.entra_upn, source.roles,
+                   1, SYSDATETIME(), SYSDATETIME());`,
+        [
+          user.id,
+          user.email,
+          user.name,
+          user.displayName,
+          entraIdClaims.oid,
+          entraIdClaims.upn || "",
+          JSON.stringify(finalRoles),
+        ]
+      );
+    } catch (err) {
+      console.error("[UserService] Failed to persist user to DB:", (err as Error).message);
+    }
 
     return user;
   }
 
   /**
-   * Get granular permissions based on roles
-   * Example: "admin" has all permissions, "viewer" has read-only
-   *
-   * In production: fetch from database rbac_permissions table
-   *
-   * @param roles User roles
-   * @returns Array of permission strings
+   * Fetch a user and their computed permissions from the DB.
+   * Returns null if the user doesn't exist or is inactive.
    */
+  async getUserWithPermissions(userId: string): Promise<AppUser | null> {
+    try {
+      const result = await queryDb(
+        `SELECT id, email, name, display_name, entra_oid, entra_upn,
+                roles, is_active, last_login
+         FROM knowledge.users
+         WHERE id = ? AND is_active = 1`,
+        [userId]
+      );
+
+      if (result.recordset.length === 0) return null;
+
+      const row = result.recordset[0];
+      const roles: string[] = JSON.parse(row.roles || '["viewer"]');
+
+      return {
+        id: row.id,
+        email: row.email,
+        name: row.name,
+        displayName: row.display_name,
+        entraId: { oid: row.entra_oid, upn: row.entra_upn || "" },
+        roles,
+        permissions: this.getPermissionsForRoles(roles),
+        lastLogin: row.last_login ? new Date(row.last_login) : new Date(),
+        isActive: true,
+      };
+    } catch (err) {
+      console.error("[UserService] Failed to fetch user from DB:", (err as Error).message);
+      return null;
+    }
+  }
+
+  /**
+   * Check if a user has a specific permission.
+   * Derives from DB roles — not from the JWT, so it reflects the latest state.
+   */
+  async hasPermission(userId: string, permission: string): Promise<boolean> {
+    const user = await this.getUserWithPermissions(userId);
+    return user?.permissions.includes(permission) ?? false;
+  }
+
   private getPermissionsForRoles(roles: string[]): string[] {
     const permissionMap: Record<string, string[]> = {
       admin: [
@@ -94,45 +149,9 @@ export class UserService {
 
     const permissions = new Set<string>();
     for (const role of roles) {
-      const rolePerms = permissionMap[role] || [];
-      rolePerms.forEach((p) => permissions.add(p));
+      for (const p of permissionMap[role] || []) permissions.add(p);
     }
-
     return Array.from(permissions);
-  }
-
-  /**
-   * Fetch user with current permissions
-   * Used by middleware and protected endpoints
-   * In production: query database
-   *
-   * @param userId Internal user ID
-   * @returns User with permissions, or null if inactive/deleted
-   */
-  async getUserWithPermissions(userId: string): Promise<AppUser | null> {
-    // TODO: Fetch from database
-    // SELECT u.*, GROUP_CONCAT(p.permission) as permissions
-    // FROM users u
-    // LEFT JOIN user_roles ur ON u.id = ur.user_id
-    // LEFT JOIN role_permissions rp ON ur.role_id = rp.role_id
-    // LEFT JOIN permissions p ON rp.permission_id = p.id
-    // WHERE u.id = @userId AND u.is_active = 1
-    return null;
-  }
-
-  /**
-   * Check if user has permission
-   * Used for fine-grained authorization
-   * In production: cache permissions, validate against database
-   *
-   * @param userId User ID
-   * @param permission Permission string to check
-   * @returns True if user has permission
-   */
-  async hasPermission(userId: string, permission: string): Promise<boolean> {
-    // TODO: Fetch user permissions from cache or database
-    // Check if permission is in user.permissions array
-    return false;
   }
 }
 
