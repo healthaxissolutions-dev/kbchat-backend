@@ -14,14 +14,12 @@ Provides RAG chat, document management, service management, and JWT-based authen
 ## 🚀 Features
 
 - RESTful API (Express) with SSE streaming for chat
-- Azure Entra ID OAuth 2.0 with CSRF-protected callback and HttpOnly JWT cookie
+- Azure Entra ID OAuth 2.0 with CSRF-protected callback, HttpOnly JWT cookie, live deactivation check on `/me` and `/refresh`
 - RAG pipeline: Ollama embeddings → Supabase vector search → Ollama or Gemini generation
 - MSSQL connection pooling for services and document metadata
 - Admin API for services, documents, and system prompt management (admin role required)
-- Azure Blob Storage for PDFs (connection string in dev, Managed Identity in prod)
-
-**Upcoming**
-- Frontend implementation (chat UI, admin panel)
+- Azure Blob Storage for PDFs (connection string in dev, Managed Identity in prod); LRU byte-capped in-memory cache with direct blob streaming on miss
+- Security: `helmet`, per-route rate limiting (chat / auth callback / admin), request body size cap
 
 ---
 
@@ -56,8 +54,12 @@ project/
 │   ├── prompts/
 │   │   └── systemPrompt.txt
 │   │
+│   ├── middleware/
+│   │   ├── chatRateLimit.ts
+│   │   └── rateLimits.ts       # authRateLimit, adminRateLimit
+│   │
 │   └── utils/
-│       ├── blobClient.js
+│       ├── blobClient.ts
 │       ├── error.ts
 │       └── validateEnv.ts
 │
@@ -107,7 +109,7 @@ AZURE_STORAGE_CONTAINER=
 AZURE_STORAGE_CONNECTION_STRING=
 ```
 
-> Azure Cognitive Search and Azure OpenAI variables are accepted by config but not required — the active chat route uses Supabase + Ollama/Gemini instead.
+See `.env.example` for the full list including optional RAG and PDF cache tuning vars.
 ---
 
 ## 🛠 Installation
@@ -150,15 +152,16 @@ The `state` nonce is one-time-use and expires after 10 minutes. An invalid or mi
 | Method | Endpoint | Description |
 |---|---|---|
 | `GET` | `/api/auth/nonce` | Get a one-time state nonce before starting OAuth |
-| `POST` | `/api/auth/callback` | Exchange authorization code for session cookie |
+| `POST` | `/api/auth/callback` | Exchange authorization code for session cookie (rate-limited: 10 req / 15 min) |
 | `POST` | `/api/auth/logout` | Clear session cookie |
-| `GET` | `/api/auth/me` | Get current user (requires session) |
+| `GET` | `/api/auth/me` | Get current user; 401 if deactivated (requires session) |
+| `POST` | `/api/auth/refresh` | Re-issue JWT; 401 if deactivated (requires session) |
 
 ### Chat
 
 | Method | Endpoint | Description |
 |---|---|---|
-| `POST` | `/api/chat` | RAG chat (Ollama or Gemini, optional SSE streaming) |
+| `POST` | `/api/chat` | RAG chat — requires auth (rate-limited: 5 req / min per IP) |
 
 ### Admin (requires `admin` role)
 
@@ -174,10 +177,6 @@ The `state` nonce is one-time-use and expires after 10 minutes. An invalid or mi
 |---|---|---|
 | `GET` | `/api/test-db` | Test SQL connectivity |
 | `GET` | `/api/test-backend` | Basic health check |
-
-### POST `/api/upload` (in development)
-
-Upload a PDF → stored to Azure Blob Storage.
 
 ---
 
@@ -217,19 +216,20 @@ created_date (datetime)
 
 ## 🤖 Chat Pipeline
 
-1. Ollama generates an embedding for the user's question
-2. Supabase pgvector similarity search returns the top-5 relevant document chunks (≥ 0.3 threshold)
-3. Chunks are appended to the base system prompt from `src/prompts/systemPrompt.txt`
+1. Ollama generates an embedding for the user's question (`mxbai-embed-large`)
+2. Supabase pgvector similarity search returns the top-K relevant document chunks (default: top 5, threshold 0.3 — tunable via `RAG_MATCH_COUNT` / `RAG_MATCH_THRESHOLD`)
+3. Chunks are appended to the base system prompt (DB-backed, 5-min cached; falls back to `src/prompts/systemPrompt.txt`)
 4. Ollama (`llama3.2` by default) or Gemini generates the answer
 
-Pass `"aimodel": "gemini"` in the request body to use Gemini instead of Ollama. Pass `"stream": true` for SSE token streaming.
+Pass `"aimodel": "gemini"` in the request body to use Gemini instead of Ollama. Pass `"stream": true` for SSE token streaming (`status`, `token`, `done`, `error` events).
 
 ---
 
 ## 💡 Development Notes
 
-- SQL pool is reused across all modules
-- Blob access supports both connection string and Managed Identity
+- SQL pool is reused across all modules; only fatal `ConnectionError` causes a pool reset — transient errors are logged and the pool stays up
+- Blob access supports both connection string (dev) and Managed Identity (prod)
+- PDF cache is LRU, byte-capped (200 MB total / 50 MB per entry by default), and streams directly to the client on miss
 - Use Postman or PowerShell `Invoke-RestMethod` to test `/api/chat`
 
 ---

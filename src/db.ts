@@ -42,9 +42,13 @@ async function getPool(): Promise<sql.ConnectionPool> {
   connectPromise = (async () => {
     const newPool = await sql.connect(getDbConfig());
     newPool.on("error", (err: Error) => {
-      console.error("❌ SQL pool error — resetting connection:", err.message);
-      pool = null;
-      connectPromise = null;
+      if (err instanceof sql.ConnectionError) {
+        console.error("❌ SQL pool fatal error — resetting:", err.message);
+        pool = null;
+        connectPromise = null;
+      } else {
+        console.warn("⚠️ SQL pool transient error (pool stays up):", err.message);
+      }
     });
     pool = newPool;
     connectPromise = null;

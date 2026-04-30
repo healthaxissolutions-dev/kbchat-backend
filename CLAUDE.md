@@ -15,7 +15,7 @@ No test runner is configured — use manual testing via `curl` or Postman.
 
 ## Architecture
 
-This is a Node.js + Express backend using ES modules (`"type": "module"`). The codebase is **fully TypeScript**: all source files are `.ts`, compiled to `dist/` via `tsc`. Remaining `.js` files in `src/` are compiled with `allowJs: true` (no type-checking on them). The entry point is `server.ts` at the project root.
+This is a Node.js + Express backend using ES modules (`"type": "module"`). The codebase is **fully TypeScript**: all source files are `.ts`, compiled to `dist/` via `tsc`. `allowJs: true` is kept in tsconfig for safety but there are no `.js` source files remaining. The entry point is `server.ts` at the project root.
 
 ### Request flow
 
@@ -39,7 +39,7 @@ The core feature. For each `POST /api/chat`:
 
 Selecting the model: pass `aimodel: "gemini"` or `model: "gemini"` in the request body; anything else defaults to Ollama.
 
-Rate limit: 5 requests per minute per IP (`src/middleware/chatRateLimit.js`).
+Rate limit: 5 requests per minute per IP (`src/middleware/chatRateLimit.ts`).
 
 Note: the `service` field in the request body is logged but not used for filtering — `match_mxbai_chunks` searches all chunks. A filtered RPC variant is needed in Supabase before service-scoped search can be enabled.
 
@@ -64,7 +64,7 @@ Dev (`tsx watch server.ts`) executes TypeScript directly. Prod runs `dist/server
 
 ### Data layer
 
-- **Azure SQL / MSSQL** (`src/db.ts`) — services, documents metadata, chat logs, users, system prompt (all under `knowledge.*`). Pool is created lazily on first query and auto-resets on error so the next query reconnects. Queries use `?` positional placeholders rewritten to `@p0`, `@p1`, … at call time with count validation.
+- **Azure SQL / MSSQL** (`src/db.ts`) — services, documents metadata, chat logs, users, system prompt (all under `knowledge.*`). Pool is created lazily on first query. Only `sql.ConnectionError` (fatal) resets the pool; transient pool errors are logged at warn level and the pool is left intact. Queries use `?` positional placeholders rewritten to `@p0`, `@p1`, … at call time with count validation.
 - **Error responses** — all application routes use `sendError(res, status, message, detail?)` from `src/utils/error.ts`. The `detail` field is included only outside production. Auth routes keep their own `{ success, error }` envelope.
 
 ### Required SQL migrations
@@ -96,7 +96,8 @@ CREATE TABLE knowledge.users (
 
 If the migrations haven't been run: `system_prompts` falls back to the bundled `src/prompts/systemPrompt.txt`; user login still succeeds (DB failure is logged but not fatal).
 - **Supabase** — pgvector store for document chunks; searched via `match_mxbai_chunks` RPC
-- **Azure Blob Storage** — PDF source files; all blob access goes through the singleton in `src/utils/blobClient.js`. Use `getBlobByUrl(url)` to resolve a `BlobClient` from any full HTTPS blob URL without re-instantiating the service client.
+- **Azure Blob Storage** — PDF source files; all blob access goes through the singleton in `src/utils/blobClient.ts`. Use `getBlobByUrl(url)` to resolve a `BlobClient` from any full HTTPS blob URL without re-instantiating the service client.
+- **PDF cache** (`src/routes/documents.ts`) — in-memory LRU cache bounded by total bytes (`PDF_CACHE_MAX_BYTES`, default 200 MB). Entries larger than `PDF_MAX_ENTRY_BYTES` (default 50 MB) are never cached. On cache miss, the blob stream is piped directly to the response while buffering opportunistically for the cache — the client gets the first bytes immediately. On client disconnect, the blob stream is destroyed to avoid unnecessary Azure egress.
 
 ### Environment variables
 
@@ -110,13 +111,24 @@ Copy `.env.example` to `.env`. Key groupings:
 - **Gemini**: `GEMINI_API_KEY`, `GEMINI_MODEL` (default `gemini-2.0-flash`)
 - **Azure Storage**: `AZURE_STORAGE_ACCOUNT`, `AZURE_STORAGE_CONTAINER`, `AZURE_STORAGE_CONNECTION_STRING`, `AZURE_STORAGE_USE_MI`
 - **RAG tuning**: `RAG_MATCH_COUNT` (default 5), `RAG_MATCH_THRESHOLD` (default 0.3)
+- **PDF cache tuning**: `PDF_CACHE_TTL_MS` (default 600 000 ms), `PDF_CACHE_MAX_BYTES` (default 200 MB), `PDF_MAX_ENTRY_BYTES` (default 50 MB)
 
 `src/config.ts` calls `process.exit(1)` for missing required vars at startup — check its `required()` calls if the server won't start.
 
+### Rate limiting
+
+Three separate limiters, all in `src/middleware/rateLimits.ts`:
+- **`chatRateLimit`** — 5 req / min per IP (applied in `chatRag.ts`)
+- **`authRateLimit`** — 10 req / 15 min per IP (applied on `POST /api/auth/callback`)
+- **`adminRateLimit`** — 60 req / min per IP (applied on all `/api/admin/*` routes)
+
+All use `ipKeyGenerator` from `express-rate-limit` for IPv4/IPv6-safe key generation.
+
 ### TypeScript compilation
 
-`tsconfig.json` targets `NodeNext` modules, `rootDir: "."`, outputs to `dist/`, strict mode on, `allowJs: true` / `checkJs: false` so remaining `.js` helpers compile without errors. `dist/` is in `.gitignore` — CI runs `npm run build` before packaging.
+`tsconfig.json` targets `NodeNext` modules, `rootDir: "."`, outputs to `dist/`, strict mode on, `allowJs: true` / `checkJs: false`. `dist/` is in `.gitignore` — CI runs `npm run build` before packaging. `declaration`/`declarationMap` are intentionally absent (this is an app, not a library).
 
 ### Known remaining issues (to address next)
 
 - Service-scoped RAG search not yet implemented — `searchDocuments` searches all chunks; add a filtered Supabase RPC when ready
+- Error response envelope is inconsistent: application routes use `{ error, detail }` (via `sendError`) while auth routes use `{ success, error }` — unifying requires a coordinated frontend change

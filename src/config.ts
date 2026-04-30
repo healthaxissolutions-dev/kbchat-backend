@@ -30,6 +30,8 @@ export const config = {
   },
   pdf: {
     cacheTtlMs: parseInt(process.env.PDF_CACHE_TTL_MS || "600000", 10),
+    cacheMaxBytes: parseInt(process.env.PDF_CACHE_MAX_BYTES || String(200 * 1024 * 1024), 10),
+    maxEntryBytes: parseInt(process.env.PDF_MAX_ENTRY_BYTES || String(50 * 1024 * 1024), 10),
   },
   storage: {
     useMI: process.env.AZURE_STORAGE_USE_MI === "true",
