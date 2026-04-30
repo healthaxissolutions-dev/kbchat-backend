@@ -37,16 +37,16 @@ router.post("/", async (req: Request, res: Response) => {
     return sendError(res, 400, "submodules must be an array");
   }
 
-  const exists = await queryDb(
-    `SELECT 1 FROM knowledge.services WHERE service_name = ? AND deleted_date IS NULL`,
-    [normalizedName]
-  );
-
-  if (exists.recordset.length > 0) {
-    return sendError(res, 409, "Service already exists");
-  }
-
   try {
+    const exists = await queryDb(
+      `SELECT 1 FROM knowledge.services WHERE service_name = ? AND deleted_date IS NULL`,
+      [normalizedName]
+    );
+
+    if (exists.recordset.length > 0) {
+      return sendError(res, 409, "Service already exists");
+    }
+
     const result = await queryDb(
       `INSERT INTO knowledge.services (service_name, submodules, created_date)
        OUTPUT inserted.service_id, inserted.service_name, inserted.submodules

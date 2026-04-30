@@ -22,9 +22,9 @@ This is a Node.js + Express backend using ES modules (`"type": "module"`). The c
 ```
 server.ts
   → /api/auth/*          src/auth/routes.ts          (Azure Entra ID OAuth)
-  → /api/chat            src/routes/chatRag.ts        (RAG chat — main feature, public)
-  → /api/documents       src/routes/documents.ts      (PDF serving from Blob, public)
-  → /api/admin/*         src/routes/admin/            (admin only — authenticate + authorize(["admin"]))
+  → /api/chat            src/routes/chatRag.ts        (RAG chat — requires authenticate)
+  → /api/documents       src/routes/documents.ts      (PDF serving from Blob — requires authenticate)
+  → /api/admin/*         src/routes/admin/            (admin only — adminRateLimit + authenticate + authorize(["admin"]))
   → /api/test-*          src/routes/test/             (dev only — not registered in production)
 ```
 
@@ -32,7 +32,7 @@ server.ts
 
 The core feature. For each `POST /api/chat`:
 1. Generate a text embedding via **Ollama** (`mxbai-embed-large`)
-2. Vector search in **Supabase** (`match_mxbai_chunks` RPC, default top-5 at ≥0.3 similarity)
+2. Vector search in **Supabase** (`match_mxbai_chunks` RPC, top-K and threshold from `config.rag` — default 5 / 0.3, tunable via `RAG_MATCH_COUNT` / `RAG_MATCH_THRESHOLD`)
 3. Build a system prompt by appending retrieved chunks to the base instruction (from `src/prompts/systemPrompt.txt`, 5-min cached)
 4. Call **Ollama** (default `llama3.2`) or **Gemini** for the answer
 5. Supports SSE streaming (`stream: true` in body) — sends `status`, `token`, `done`, and `error` events
@@ -48,12 +48,11 @@ Note: the `service` field in the request body is logged but not used for filteri
 Full Azure Entra ID OAuth 2.0 flow. All files are TypeScript:
 
 - **nonce.service.ts** — generates and validates one-time state nonces for CSRF protection (10-min TTL, in-memory)
-- **entraId.service.ts** — exchanges authorization code for tokens, verifies ID token signature against cached Entra ID JWKS (1-hour cache)
+- **entraId.service.ts** — exchanges authorization code for tokens, verifies ID token signature against cached Entra ID JWKS (1-hour cache; force-refreshes on key-ID miss before throwing)
 - **jwt.service.ts** — issues/verifies a short-lived (1 h) HS256 application JWT; the payload includes both `roles` and `permissions`
-- **user.service.ts** — maps Entra ID claims to an internal `AppUser` with RBAC roles; `getPermissionsForRoles` computes permissions from roles (no DB yet — TODO)
+- **user.service.ts** — upserts user to `knowledge.users` on every login via T-SQL `MERGE`; `getUserWithPermissions` reads live roles from DB (called by `/me` and `/refresh` to catch deactivated users). DB failure does not block login.
 - **authenticate.ts** — reads JWT from `app_session` HttpOnly cookie, attaches payload to `req.user`
 - **authorize.ts** — role-based (`authorize(["admin"])`) and permission-based (`requirePermission("delete:documents")`) middleware; both enforce using JWT claims
-- **user.service.ts** — upserts user to `knowledge.users` on every login via T-SQL `MERGE`; `getUserWithPermissions` reads live roles from DB; `hasPermission` derives from DB roles (not JWT). DB failure does not block login.
 
 OAuth frontend flow (must be followed in order):
 1. `GET /api/auth/nonce` → receive `{ state }`
@@ -110,7 +109,7 @@ Copy `.env.example` to `.env`. Key groupings:
 - **Ollama**: `OLLAMA_BASE_URL` (default `http://localhost:11434`), `OLLAMA_MODEL`, `OLLAMA_EMBEDDING_MODEL`
 - **Gemini**: `GEMINI_API_KEY`, `GEMINI_MODEL` (default `gemini-2.0-flash`)
 - **Azure Storage**: `AZURE_STORAGE_ACCOUNT`, `AZURE_STORAGE_CONTAINER`, `AZURE_STORAGE_CONNECTION_STRING`, `AZURE_STORAGE_USE_MI`
-- **Azure Search / OpenAI**: accepted by `src/config.ts` but optional — not used by the active chat route
+- **RAG tuning**: `RAG_MATCH_COUNT` (default 5), `RAG_MATCH_THRESHOLD` (default 0.3)
 
 `src/config.ts` calls `process.exit(1)` for missing required vars at startup — check its `required()` calls if the server won't start.
 

@@ -9,6 +9,7 @@ import { searchDocuments, DocumentChunk } from "../services/supabase.js";
 import { getSystemPrompt } from "../services/systemPrompt.js";
 import { chatRateLimit } from "../middleware/chatRateLimit.js";
 import { sendError } from "../utils/error.js";
+import { config } from "../config.js";
 
 const router = express.Router();
 
@@ -83,7 +84,7 @@ router.post("/", chatRateLimit, async (req: Request, res: Response) => {
         /* 2. Retrieve relevant chunks from Supabase */
         if (useStream) sendEvent(res, { type: "status", message: "Searching knowledge base…" });
         console.log("📚 Searching Supabase vector store...");
-        const chunks = await searchDocuments(embedding, 5, 0.3);
+        const chunks = await searchDocuments(embedding, config.rag.matchCount, config.rag.matchThreshold);
 
         console.log(`✅ Retrieved ${chunks.length} relevant chunk(s).`);
         if (chunks.length === 0) {

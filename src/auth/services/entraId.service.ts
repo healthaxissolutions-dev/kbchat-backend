@@ -91,11 +91,15 @@ export class EntraIdService {
         throw new Error("Invalid token format");
       }
 
-      const keys = await this.getJwks();
+      let keys = await this.getJwks();
       const keyId = decoded.header.kid;
-      const key = keys.find((k: any) => k.kid === keyId);
+      let key = keys.find((k: any) => k.kid === keyId);
       if (!key) {
-        throw new Error(`Token key not found: ${keyId}`);
+        // Key not in cache — Microsoft may have rotated keys; force one refresh
+        this.jwksCache = null;
+        keys = await this.getJwks();
+        key = keys.find((k: any) => k.kid === keyId);
+        if (!key) throw new Error(`Token key not found: ${keyId}`);
       }
 
       // Convert JWK to PEM format for verification

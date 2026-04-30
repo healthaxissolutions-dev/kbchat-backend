@@ -36,7 +36,7 @@ export const authConfig = {
     secure: process.env.NODE_ENV === "production", // HTTPS only in prod
     httpOnly: true, // Prevents JavaScript access (XSS protection)
     sameSite: (process.env.NODE_ENV === "production" ? "strict" : "lax") as "strict" | "lax", // Lax for local dev
-    maxAge: 1000 * 60 * 60, // 1 hour
+    // maxAge is not set here — it is always derived from the JWT expiresIn at issuance time
   },
 
   // JWT configuration

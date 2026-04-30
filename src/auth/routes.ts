@@ -5,6 +5,7 @@ import { jwtService } from "./services/jwt.service.js";
 import { nonceService } from "./services/nonce.service.js";
 import { authConfig } from "./config.js";
 import { authenticate } from "./middleware/authenticate.js";
+import { authRateLimit } from "../middleware/rateLimits.js";
 import { OAuthCallbackRequest, AuthResponse } from "./types.js";
 
 const router = Router();
@@ -22,7 +23,7 @@ router.get("/nonce", (_req: Request, res: Response) => {
  * POST /api/auth/callback
  * Exchanges an authorization code for an application session.
  */
-router.post("/callback", async (req: Request, res: Response) => {
+router.post("/callback", authRateLimit, async (req: Request, res: Response) => {
   try {
     const { code, state } = req.body as OAuthCallbackRequest;
 
@@ -60,7 +61,10 @@ router.post("/callback", async (req: Request, res: Response) => {
     console.error("OAuth callback error:", error);
     res.status(500).json({
       success: false,
-      error: error instanceof Error ? error.message : "Authentication failed",
+      error:
+        process.env.NODE_ENV !== "production" && error instanceof Error
+          ? error.message
+          : "Authentication failed",
     });
   }
 });

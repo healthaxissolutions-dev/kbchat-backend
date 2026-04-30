@@ -24,16 +24,9 @@ export const config = {
     encrypt: process.env.DB_ENCRYPT === "true",
     auth: process.env.DB_AUTH, // "sql" | "managed_identity"
   },
-  // Legacy Azure services — not used by the active chat route (Supabase/Ollama/Gemini).
-  search: {
-    endpoint: process.env.SEARCH_ENDPOINT || "",
-    index: process.env.SEARCH_INDEX || "",
-    key: process.env.SEARCH_API_KEY || "",
-  },
-  openai: {
-    endpoint: process.env.AZURE_OPENAI_ENDPOINT || "",
-    key: process.env.AZURE_OPENAI_KEY || "",
-    deployment: process.env.AZURE_OPENAI_DEPLOYMENT || "",
+  rag: {
+    matchCount: parseInt(process.env.RAG_MATCH_COUNT || "5", 10),
+    matchThreshold: parseFloat(process.env.RAG_MATCH_THRESHOLD || "0.3"),
   },
   storage: {
     useMI: process.env.AZURE_STORAGE_USE_MI === "true",

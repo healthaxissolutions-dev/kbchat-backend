@@ -119,34 +119,34 @@ router.put("/:id", async (req: Request, res: Response) => {
     return sendError(res, 400, "page_from_inclusive cannot be greater than page_to_inclusive");
   }
 
-  const existing = await queryDb(
-    `SELECT * FROM knowledge.documents WHERE document_id = ? AND deleted_date IS NULL`,
-    [id]
-  );
-  if (existing.recordset.length === 0) {
-    return sendError(res, 404, "Document not found");
-  }
-
-  const current = existing.recordset[0];
-  const finalServiceId = service_id !== undefined ? service_id : current.service_id;
-  const finalSubmodule = service_submodule !== undefined ? service_submodule : current.service_submodule;
-  const finalBlobDirectory = blob_directory !== undefined ? blob_directory : current.blob_directory;
-  const finalPageFrom = page_from_inclusive !== undefined ? page_from_inclusive : current.page_from_inclusive;
-  const finalPageTo = page_to_inclusive !== undefined ? page_to_inclusive : current.page_to_inclusive;
-  let finalPageSkip = current.page_to_skip;
-  if (page_to_skip !== undefined) finalPageSkip = normalizePageToSkip(page_to_skip);
-
-  if (service_id !== undefined && service_id !== current.service_id) {
-    const svc = await queryDb(
-      `SELECT 1 FROM knowledge.services WHERE service_id = ? AND deleted_date IS NULL`,
-      [finalServiceId]
-    );
-    if (svc.recordset.length === 0) {
-      return sendError(res, 400, "Invalid service_id");
-    }
-  }
-
   try {
+    const existing = await queryDb(
+      `SELECT * FROM knowledge.documents WHERE document_id = ? AND deleted_date IS NULL`,
+      [id]
+    );
+    if (existing.recordset.length === 0) {
+      return sendError(res, 404, "Document not found");
+    }
+
+    const current = existing.recordset[0];
+    const finalServiceId = service_id !== undefined ? service_id : current.service_id;
+    const finalSubmodule = service_submodule !== undefined ? service_submodule : current.service_submodule;
+    const finalBlobDirectory = blob_directory !== undefined ? blob_directory : current.blob_directory;
+    const finalPageFrom = page_from_inclusive !== undefined ? page_from_inclusive : current.page_from_inclusive;
+    const finalPageTo = page_to_inclusive !== undefined ? page_to_inclusive : current.page_to_inclusive;
+    let finalPageSkip = current.page_to_skip;
+    if (page_to_skip !== undefined) finalPageSkip = normalizePageToSkip(page_to_skip);
+
+    if (service_id !== undefined && service_id !== current.service_id) {
+      const svc = await queryDb(
+        `SELECT 1 FROM knowledge.services WHERE service_id = ? AND deleted_date IS NULL`,
+        [finalServiceId]
+      );
+      if (svc.recordset.length === 0) {
+        return sendError(res, 400, "Invalid service_id");
+      }
+    }
+
     const dup = await queryDb(
       `SELECT 1 FROM knowledge.documents
        WHERE service_id = ? AND service_submodule = ? AND blob_directory = ?
