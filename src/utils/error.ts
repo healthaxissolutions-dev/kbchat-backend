@@ -1,10 +1,6 @@
 import type { Response } from "express";
+import { config } from "../config.js";
 
-/**
- * Send a consistent JSON error response.
- * `detail` (the raw error message) is included only outside production
- * to avoid leaking implementation details to clients.
- */
 export function sendError(
   res: Response,
   status: number,
@@ -12,7 +8,7 @@ export function sendError(
   detail?: string | null
 ): void {
   const body: Record<string, string> = { error: message };
-  if (detail && process.env.NODE_ENV !== "production") {
+  if (detail && config.server.env !== "production") {
     body.detail = detail;
   }
   res.status(status).json(body);

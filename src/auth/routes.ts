@@ -6,33 +6,25 @@ import { nonceService } from "./services/nonce.service.js";
 import { authConfig } from "./config.js";
 import { authenticate } from "./middleware/authenticate.js";
 import { authRateLimit } from "../middleware/rateLimits.js";
+import { sendError } from "../utils/error.js";
 import { OAuthCallbackRequest, AuthResponse } from "./types.js";
 
 const router = Router();
 
-/**
- * GET /api/auth/nonce
- * Issues a one-time state nonce the frontend must use when starting the OAuth redirect.
- */
 router.get("/nonce", (_req: Request, res: Response) => {
   const state = nonceService.generate();
   res.json({ state });
 });
 
-/**
- * POST /api/auth/callback
- * Exchanges an authorization code for an application session.
- */
 router.post("/callback", authRateLimit, async (req: Request, res: Response) => {
   try {
     const { code, state } = req.body as OAuthCallbackRequest;
 
     if (!code) {
-      return res.status(400).json({ success: false, error: "Missing authorization code" });
+      return sendError(res, 400, "Missing authorization code");
     }
-
     if (!state || !nonceService.consume(state)) {
-      return res.status(400).json({ success: false, error: "Invalid or expired state parameter" });
+      return sendError(res, 400, "Invalid or expired state parameter");
     }
 
     const tokens = await entraIdService.exchangeCodeForTokens(code, state);
@@ -59,20 +51,10 @@ router.post("/callback", authRateLimit, async (req: Request, res: Response) => {
     res.json(response);
   } catch (error) {
     console.error("OAuth callback error:", error);
-    res.status(500).json({
-      success: false,
-      error:
-        process.env.NODE_ENV !== "production" && error instanceof Error
-          ? error.message
-          : "Authentication failed",
-    });
+    sendError(res, 500, "Authentication failed", (error as Error).message);
   }
 });
 
-/**
- * POST /api/auth/logout
- * Clears the session cookie.
- */
 router.post("/logout", (_req: Request, res: Response) => {
   res.clearCookie(authConfig.cookie.name, {
     httpOnly: authConfig.cookie.httpOnly,
@@ -82,15 +64,10 @@ router.post("/logout", (_req: Request, res: Response) => {
   res.json({ success: true, message: "Logged out successfully" });
 });
 
-/**
- * GET /api/auth/me
- * Returns the current authenticated user, verified live against the DB.
- * Rejects if the user has been deactivated since the JWT was issued.
- */
 router.get("/me", authenticate, async (req: Request, res: Response) => {
   const user = await userService.getUserWithPermissions(req.user!.sub);
   if (!user) {
-    return res.status(401).json({ success: false, error: "Session invalid or user deactivated" });
+    return sendError(res, 401, "Session invalid or user deactivated");
   }
   res.json({
     id: user.id,
@@ -101,15 +78,10 @@ router.get("/me", authenticate, async (req: Request, res: Response) => {
   });
 });
 
-/**
- * POST /api/auth/refresh
- * Re-issues a fresh session JWT from live DB state.
- * Rejects if the user has been deactivated since the original token was issued.
- */
 router.post("/refresh", authenticate, async (req: Request, res: Response) => {
   const user = await userService.getUserWithPermissions(req.user!.sub);
   if (!user) {
-    return res.status(401).json({ success: false, error: "Session invalid or user deactivated" });
+    return sendError(res, 401, "Session invalid or user deactivated");
   }
   const { token, expiresIn } = jwtService.issueToken(user);
   res.cookie(authConfig.cookie.name, token, {

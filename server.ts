@@ -14,6 +14,7 @@ import authRoutes from "./src/auth/routes.js";
 import { authenticate } from "./src/auth/middleware/authenticate.js";
 import { authorize } from "./src/auth/middleware/authorize.js";
 import { adminRateLimit } from "./src/middleware/rateLimits.js";
+import { csrfProtect } from "./src/middleware/csrfProtect.js";
 import { config } from "./src/config.js";
 import { validateStorageConfig } from "./src/utils/validateEnv.js";
 
@@ -23,7 +24,7 @@ const app = express();
 app.set("trust proxy", 1);
 
 const corsOptions = {
-  origin: process.env.FRONTEND_URL || "http://localhost:3000",
+  origin: config.server.frontendUrl,
   credentials: true,
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization"],
@@ -49,6 +50,7 @@ app.use("/api/auth", authRoutes);
 app.use("/api/chat", authenticate, chatRagRoute);
 app.use("/api/documents", authenticate, documentsRoute);
 
+app.use("/api/admin", csrfProtect);
 app.use("/api/admin/services", adminRateLimit, authenticate, authorize(["admin"]), adminServicesRoute);
 app.use("/api/admin/documents", adminRateLimit, authenticate, authorize(["admin"]), adminDocumentsRoute);
 app.use("/api/admin/system-prompt", adminRateLimit, authenticate, authorize(["admin"]), adminSystemPromptRoute);
