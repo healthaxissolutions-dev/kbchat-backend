@@ -1,13 +1,9 @@
-// src/middleware/chatRateLimit.js
-
 import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 
 export const chatRateLimit = rateLimit({
-  windowMs: 60 * 1000, // 1 minute
+  windowMs: 60 * 1000,
   max: 5,
   standardHeaders: true,
   legacyHeaders: false,
-
-  // ✅ FIX: IPv4 + IPv6 safe
-  keyGenerator: (req) => ipKeyGenerator(req)
+  keyGenerator: (req) => ipKeyGenerator(req as any),
 });

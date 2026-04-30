@@ -28,6 +28,9 @@ export const config = {
     matchCount: parseInt(process.env.RAG_MATCH_COUNT || "5", 10),
     matchThreshold: parseFloat(process.env.RAG_MATCH_THRESHOLD || "0.3"),
   },
+  pdf: {
+    cacheTtlMs: parseInt(process.env.PDF_CACHE_TTL_MS || "600000", 10),
+  },
   storage: {
     useMI: process.env.AZURE_STORAGE_USE_MI === "true",
     connectionString: process.env.AZURE_STORAGE_CONNECTION_STRING || null,

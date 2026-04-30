@@ -15,8 +15,6 @@ const router = express.Router();
 
 type AiModel = "ollama" | "gemini";
 
-const isDev = process.env.NODE_ENV !== "production";
-
 /** Append context chunks to the base system prompt. */
 function buildSystemPrompt(baseInstruction: string, chunks: DocumentChunk[]): string {
     if (chunks.length === 0) {
@@ -150,7 +148,7 @@ router.post("/", chatRateLimit, async (req: Request, res: Response) => {
             if (keepAlive) clearInterval(keepAlive);
             sendEvent(res, {
                 type: "error",
-                message: isDev ? error.message : "Internal server error",
+                message: config.server.env !== "production" ? error.message : "Internal server error",
             });
             res.end();
         } else {

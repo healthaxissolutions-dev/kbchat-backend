@@ -8,6 +8,7 @@ import { getBlobByUrl } from "../utils/blobClient.js";
 import { resolveServiceId } from "../services/serviceResolver.js";
 import { resolveDocuments } from "../services/documentResolver.js";
 import { sendError } from "../utils/error.js";
+import { config } from "../config.js";
 
 const router = express.Router();
 
@@ -27,7 +28,7 @@ async function downloadPdf(blobUrl: string): Promise<Buffer> {
 /* -----------------------------------------------
    In-memory PDF cache
 ----------------------------------------------- */
-const CACHE_TTL_MS = parseInt(process.env.PDF_CACHE_TTL_MS ?? "600000", 10); // 10 min default
+const CACHE_TTL_MS = config.pdf.cacheTtlMs;
 
 interface CacheEntry {
     buf: Buffer;
