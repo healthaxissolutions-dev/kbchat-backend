@@ -1,4 +1,5 @@
 import { Router, Request, Response } from "express";
+import { z } from "zod";
 import { entraIdService } from "./services/entraId.service.js";
 import { userService } from "./services/user.service.js";
 import { jwtService } from "./services/jwt.service.js";
@@ -7,9 +8,16 @@ import { authConfig } from "./config.js";
 import { authenticate } from "./middleware/authenticate.js";
 import { authRateLimit } from "../middleware/rateLimits.js";
 import { sendError } from "../utils/error.js";
-import { OAuthCallbackRequest, AuthResponse } from "./types.js";
+import { validateBody } from "../utils/validate.js";
+import { logger } from "../utils/logger.js";
+import { AuthResponse } from "./types.js";
 
 const router = Router();
+
+const CallbackSchema = z.object({
+  code: z.string().min(1, "Missing authorization code"),
+  state: z.string().min(1, "Missing state parameter"),
+});
 
 router.get("/nonce", (_req: Request, res: Response) => {
   const state = nonceService.generate();
@@ -18,16 +26,14 @@ router.get("/nonce", (_req: Request, res: Response) => {
 
 router.post("/callback", authRateLimit, async (req: Request, res: Response) => {
   try {
-    const { code, state } = req.body as OAuthCallbackRequest;
+    const data = validateBody(CallbackSchema, req, res);
+    if (!data) return;
 
-    if (!code) {
-      return sendError(res, 400, "Missing authorization code");
-    }
-    if (!state || !nonceService.consume(state)) {
+    if (!nonceService.consume(data.state)) {
       return sendError(res, 400, "Invalid or expired state parameter");
     }
 
-    const tokens = await entraIdService.exchangeCodeForTokens(code, state);
+    const tokens = await entraIdService.exchangeCodeForTokens(data.code, data.state);
     const entraIdClaims = await entraIdService.verifyIdToken(tokens.id_token);
     const appUser = await userService.syncUserFromEntraId(entraIdClaims);
     const { token, expiresIn } = jwtService.issueToken(appUser);
@@ -50,7 +56,7 @@ router.post("/callback", authRateLimit, async (req: Request, res: Response) => {
 
     res.json(response);
   } catch (error) {
-    console.error("OAuth callback error:", error);
+    logger.error({ err: error }, "OAuth callback error");
     sendError(res, 500, "Authentication failed", (error as Error).message);
   }
 });

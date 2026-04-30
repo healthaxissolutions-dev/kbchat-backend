@@ -1,8 +1,19 @@
 import express, { Request, Response } from "express";
+import { z } from "zod";
 import { queryDb } from "../../db.js";
 import { sendError } from "../../utils/error.js";
+import { validateBody } from "../../utils/validate.js";
 
 const router = express.Router();
+
+const CreateServiceSchema = z.object({
+  service_name: z.string().min(1, "service_name is required"),
+  submodules: z.array(z.string()).optional().default([]),
+});
+
+const UpdateServiceSchema = z.object({
+  submodules: z.array(z.string()),
+});
 
 router.get("/", async (_req: Request, res: Response) => {
   try {
@@ -26,23 +37,16 @@ router.get("/", async (_req: Request, res: Response) => {
 });
 
 router.post("/", async (req: Request, res: Response) => {
-  const { service_name, submodules } = req.body;
-  const normalizedName: string = (service_name || "").trim().toLowerCase();
+  const data = validateBody(CreateServiceSchema, req, res);
+  if (!data) return;
 
-  if (!normalizedName) {
-    return sendError(res, 400, "service_name is required");
-  }
-
-  if (submodules && !Array.isArray(submodules)) {
-    return sendError(res, 400, "submodules must be an array");
-  }
+  const normalizedName = data.service_name.trim().toLowerCase();
 
   try {
     const exists = await queryDb(
       `SELECT 1 FROM knowledge.services WHERE service_name = ? AND deleted_date IS NULL`,
       [normalizedName]
     );
-
     if (exists.recordset.length > 0) {
       return sendError(res, 409, "Service already exists");
     }
@@ -51,7 +55,7 @@ router.post("/", async (req: Request, res: Response) => {
       `INSERT INTO knowledge.services (service_name, submodules, created_date)
        OUTPUT inserted.service_id, inserted.service_name, inserted.submodules
        VALUES (?, ?, GETDATE())`,
-      [normalizedName, JSON.stringify(submodules ?? [])]
+      [normalizedName, JSON.stringify(data.submodules)]
     );
     res.status(201).json(result.recordset[0]);
   } catch (err) {
@@ -61,23 +65,18 @@ router.post("/", async (req: Request, res: Response) => {
 
 router.put("/:id", async (req: Request, res: Response) => {
   const { id } = req.params;
-  const { submodules } = req.body;
-
-  if (!Array.isArray(submodules)) {
-    return sendError(res, 400, "submodules must be an array");
-  }
+  const data = validateBody(UpdateServiceSchema, req, res);
+  if (!data) return;
 
   try {
     const result = await queryDb(
       `UPDATE knowledge.services SET submodules = ?, updated_date = GETDATE()
        WHERE service_id = ? AND deleted_date IS NULL`,
-      [JSON.stringify(submodules), id]
+      [JSON.stringify(data.submodules), id]
     );
-
     if (result.rowsAffected[0] === 0) {
       return sendError(res, 404, "Service not found");
     }
-
     res.json({ success: true });
   } catch (err) {
     sendError(res, 500, "Failed to update service", (err as Error).message);
@@ -93,11 +92,9 @@ router.delete("/:id", async (req: Request, res: Response) => {
        WHERE service_id = ? AND deleted_date IS NULL`,
       [id]
     );
-
     if (result.rowsAffected[0] === 0) {
       return sendError(res, 404, "Service not found");
     }
-
     res.json({ success: true });
   } catch (err) {
     sendError(res, 500, "Failed to delete service", (err as Error).message);

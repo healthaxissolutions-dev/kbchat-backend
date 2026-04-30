@@ -1,9 +1,10 @@
 import sql from "mssql";
 import { config } from "./config.js";
+import { logger } from "./utils/logger.js";
 
 function getDbConfig(): string | sql.config {
   if (config.sql.auth === "managed_identity") {
-    console.log("🟩 Using Azure Managed Identity for SQL");
+    logger.info("Using Azure Managed Identity for SQL");
     return {
       server: config.sql.server!,
       database: config.sql.name,
@@ -14,11 +15,11 @@ function getDbConfig(): string | sql.config {
   }
 
   if (config.sql.connectionString) {
-    console.log("🟦 Using SQL connection string mode");
+    logger.info("Using SQL connection string mode");
     return config.sql.connectionString;
   }
 
-  console.log("🟨 Using SQL username/password mode");
+  logger.info("Using SQL username/password mode");
   return {
     user: config.sql.user,
     password: config.sql.pass,
@@ -43,16 +44,16 @@ async function getPool(): Promise<sql.ConnectionPool> {
     const newPool = await sql.connect(getDbConfig());
     newPool.on("error", (err: Error) => {
       if (err instanceof sql.ConnectionError) {
-        console.error("❌ SQL pool fatal error — resetting:", err.message);
+        logger.error({ err }, "SQL pool fatal error — resetting");
         pool = null;
         connectPromise = null;
       } else {
-        console.warn("⚠️ SQL pool transient error (pool stays up):", err.message);
+        logger.warn({ err }, "SQL pool transient error (pool stays up)");
       }
     });
     pool = newPool;
     connectPromise = null;
-    console.log("✔ Connected to SQL database");
+    logger.info("Connected to SQL database");
     return pool;
   })();
 
@@ -80,7 +81,7 @@ export async function queryDb(
   try {
     return await request.query(sqlQuery);
   } catch (err) {
-    console.error("❌ Database query error:", err);
+    logger.error({ err }, "Database query error");
     throw err;
   }
 }

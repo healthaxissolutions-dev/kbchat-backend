@@ -1,11 +1,19 @@
 import express, { Request, Response } from "express";
+import { z } from "zod";
 import { getBlobByUrl } from "../utils/blobClient.js";
 import { resolveServiceId } from "../services/serviceResolver.js";
 import { resolveDocuments } from "../services/documentResolver.js";
 import { sendError } from "../utils/error.js";
+import { validateQuery } from "../utils/validate.js";
+import { logger } from "../utils/logger.js";
 import { config } from "../config.js";
 
 const router = express.Router();
+
+const PdfQuerySchema = z.object({
+  service: z.string().min(1, "'service' query param is required"),
+  submodule: z.string().optional().default("shared"),
+});
 
 /* -----------------------------------------------
    LRU PDF cache — bounded by total bytes
@@ -32,7 +40,6 @@ class LruCache {
       this.evict(key);
       return null;
     }
-    // Move to end of Map (MRU position)
     this.map.delete(key);
     this.map.set(key, entry);
     return entry;
@@ -40,13 +47,9 @@ class LruCache {
 
   set(key: string, buf: Buffer, filename: string): void {
     if (buf.length > this.maxBytes) return;
-    if (this.map.has(key)) {
-      this.evict(key);
-    }
-    // Evict oldest entries until there is room
+    if (this.map.has(key)) this.evict(key);
     while (this.totalBytes + buf.length > this.maxBytes && this.map.size > 0) {
-      const oldestKey = this.map.keys().next().value as string;
-      this.evict(oldestKey);
+      this.evict(this.map.keys().next().value as string);
     }
     this.map.set(key, { buf, filename, expiresAt: Date.now() + this.ttlMs });
     this.totalBytes += buf.length;
@@ -112,9 +115,9 @@ async function servePdfFromBlob(
       res.end();
       if (!overflow) {
         pdfCache.set(cacheKey, Buffer.concat(chunks), filename);
-        console.log(`[PDF cache SET] ${cacheKey} (${totalBytes} bytes)`);
+        logger.debug({ cacheKey, bytes: totalBytes }, "PDF cache SET");
       } else {
-        console.log(`[PDF cache SKIP] ${cacheKey} — ${totalBytes} bytes exceeds max entry size`);
+        logger.debug({ cacheKey, bytes: totalBytes }, "PDF cache SKIP — exceeds max entry size");
       }
       resolve();
     });
@@ -128,27 +131,24 @@ async function servePdfFromBlob(
 ----------------------------------------------- */
 router.get("/pdf", async (req: Request, res: Response) => {
   try {
-    const service = req.query.service as string | undefined;
-    const submodule = (req.query.submodule as string | undefined) ?? "shared";
+    const query = validateQuery(PdfQuerySchema, req, res);
+    if (!query) return;
 
-    console.log(`📂 [PDF Request] Service: ${service}, Submodule: ${submodule}`);
-
-    if (!service || service.trim() === "") {
-      return sendError(res, 400, "'service' query param is required.");
-    }
+    const { service, submodule } = query;
+    logger.info({ service, submodule }, "PDF request");
 
     const cacheKey = `${service}:${submodule}`;
     const cached = pdfCache.get(cacheKey);
 
     if (cached) {
-      console.log(`[PDF cache HIT] ${cacheKey}`);
+      logger.debug({ cacheKey }, "PDF cache HIT");
       res.setHeader("Content-Type", "application/pdf");
       res.setHeader("Content-Disposition", `inline; filename="${cached.filename}"`);
       res.setHeader("X-Cache", "HIT");
       return res.send(cached.buf);
     }
 
-    console.log(`[PDF cache MISS] ${cacheKey} — fetching from blob...`);
+    logger.debug({ cacheKey }, "PDF cache MISS — fetching from blob");
 
     const serviceId = await resolveServiceId(service);
     const documents = await resolveDocuments(serviceId, submodule);
@@ -158,7 +158,7 @@ router.get("/pdf", async (req: Request, res: Response) => {
     }
 
     const doc = documents[0];
-    console.log(`🔗 [PDF Serving] Document ID: ${doc.document_id}, Blob Path: ${doc.blob_directory}`);
+    logger.info({ documentId: doc.document_id, blobPath: doc.blob_directory }, "Serving PDF");
 
     const blobParts = doc.blob_directory.split("/");
     const filename = blobParts[blobParts.length - 1] || `${service}-${submodule}.pdf`;
@@ -166,7 +166,7 @@ router.get("/pdf", async (req: Request, res: Response) => {
     await servePdfFromBlob(doc.blob_directory, cacheKey, filename, res);
   } catch (err) {
     const error = err as Error;
-    console.error("❌ PDF route error:", error.message);
+    logger.error({ err: error }, "PDF route error");
     if (!res.headersSent) {
       sendError(res, 500, "Internal server error", error.message);
     }

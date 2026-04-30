@@ -16,6 +16,7 @@ import { authorize } from "./src/auth/middleware/authorize.js";
 import { adminRateLimit } from "./src/middleware/rateLimits.js";
 import { csrfProtect } from "./src/middleware/csrfProtect.js";
 import { config } from "./src/config.js";
+import { logger } from "./src/utils/logger.js";
 import { validateStorageConfig } from "./src/utils/validateEnv.js";
 
 validateStorageConfig(config);
@@ -77,5 +78,5 @@ app.use((err: Error & { status?: number }, _req: Request, res: Response, _next: 
 
 const PORT = config.server.port;
 app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+  logger.info({ port: PORT, env: config.server.env }, "Server running");
 });

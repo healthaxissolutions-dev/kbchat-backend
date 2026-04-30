@@ -1,26 +1,49 @@
 import express, { Request, Response } from "express";
+import { z } from "zod";
 import { queryDb } from "../../db.js";
 import { sendError } from "../../utils/error.js";
-
-function normalizePageToSkip(input: unknown): string | null {
-  if (input === undefined || input === null) return null;
-
-  if (!Array.isArray(input)) {
-    throw new Error("page_to_skip must be an array of integers");
-  }
-
-  const normalized = (input as unknown[])
-    .map((n) => Number(n))
-    .filter((n) => Number.isInteger(n) && n > 0);
-
-  if (normalized.length !== input.length) {
-    throw new Error("page_to_skip must contain only positive integers");
-  }
-
-  return JSON.stringify(normalized);
-}
+import { validateBody } from "../../utils/validate.js";
 
 const router = express.Router();
+
+const pageRange = ({
+  page_from_inclusive,
+  page_to_inclusive,
+}: {
+  page_from_inclusive?: number | null;
+  page_to_inclusive?: number | null;
+}) =>
+  page_from_inclusive == null ||
+  page_to_inclusive == null ||
+  page_from_inclusive <= page_to_inclusive;
+
+const pageRangeMsg = { message: "page_from_inclusive cannot be greater than page_to_inclusive" };
+
+const DocumentFields = {
+  page_from_inclusive: z.number().int().positive().nullable().optional(),
+  page_to_inclusive: z.number().int().positive().nullable().optional(),
+  page_to_skip: z.array(z.number().int().positive()).nullable().optional(),
+};
+
+const CreateDocumentSchema = z
+  .object({
+    service_id: z.number().int().positive(),
+    service_submodule: z.string().min(1, "service_submodule is required"),
+    blob_directory: z.string().min(1, "blob_directory is required"),
+    ...DocumentFields,
+  })
+  .refine(pageRange, pageRangeMsg);
+
+const UpdateDocumentSchema = z.object({
+  service_id: z.number().int().positive().optional(),
+  service_submodule: z.string().min(1).optional(),
+  blob_directory: z.string().min(1).optional(),
+  ...DocumentFields,
+});
+
+function toPageSkipJson(pages: number[] | null | undefined): string | null {
+  return pages != null ? JSON.stringify(pages) : null;
+}
 
 router.get("/", async (_req: Request, res: Response) => {
   try {
@@ -40,33 +63,17 @@ router.get("/", async (_req: Request, res: Response) => {
 });
 
 router.post("/", async (req: Request, res: Response) => {
+  const data = validateBody(CreateDocumentSchema, req, res);
+  if (!data) return;
+
   try {
-    const {
-      service_id,
-      service_submodule,
-      blob_directory,
-      page_from_inclusive,
-      page_to_inclusive,
-      page_to_skip,
-    } = req.body;
-
-    if (!service_id || !service_submodule || !blob_directory) {
-      return sendError(res, 400, "service_id, service_submodule, and blob_directory are required");
-    }
-
-    if (page_from_inclusive != null && page_to_inclusive != null && page_from_inclusive > page_to_inclusive) {
-      return sendError(res, 400, "page_from_inclusive cannot be greater than page_to_inclusive");
-    }
-
     const svc = await queryDb(
       `SELECT 1 FROM knowledge.services WHERE service_id = ? AND deleted_date IS NULL`,
-      [service_id]
+      [data.service_id]
     );
     if (svc.recordset.length === 0) {
       return sendError(res, 400, "Invalid or inactive service_id");
     }
-
-    const normalizedPageToSkip = normalizePageToSkip(page_to_skip);
 
     const exists = await queryDb(
       `SELECT 1 FROM knowledge.documents
@@ -74,7 +81,13 @@ router.post("/", async (req: Request, res: Response) => {
          AND ISNULL(page_from_inclusive, -1) = ISNULL(?, -1)
          AND ISNULL(page_to_inclusive, -1) = ISNULL(?, -1)
          AND deleted_date IS NULL`,
-      [service_id, service_submodule, blob_directory, page_from_inclusive, page_to_inclusive]
+      [
+        data.service_id,
+        data.service_submodule,
+        data.blob_directory,
+        data.page_from_inclusive ?? null,
+        data.page_to_inclusive ?? null,
+      ]
     );
     if (exists.recordset.length > 0) {
       return sendError(res, 409, "Exact document mapping already exists");
@@ -87,37 +100,24 @@ router.post("/", async (req: Request, res: Response) => {
        OUTPUT inserted.document_id
        VALUES (?, ?, ?, ?, ?, ?, SYSDATETIME())`,
       [
-        service_id,
-        service_submodule,
-        blob_directory,
-        page_from_inclusive ?? null,
-        page_to_inclusive ?? null,
-        normalizedPageToSkip,
+        data.service_id,
+        data.service_submodule,
+        data.blob_directory,
+        data.page_from_inclusive ?? null,
+        data.page_to_inclusive ?? null,
+        toPageSkipJson(data.page_to_skip),
       ]
     );
     res.status(201).json({ document_id: result.recordset[0].document_id });
   } catch (err) {
-    if ((err as Error).message.includes("page_to_skip")) {
-      return sendError(res, 400, (err as Error).message);
-    }
     sendError(res, 500, "Failed to create document", (err as Error).message);
   }
 });
 
 router.put("/:id", async (req: Request, res: Response) => {
   const { id } = req.params;
-  const {
-    service_id,
-    service_submodule,
-    blob_directory,
-    page_from_inclusive,
-    page_to_inclusive,
-    page_to_skip,
-  } = req.body;
-
-  if (page_from_inclusive != null && page_to_inclusive != null && page_from_inclusive > page_to_inclusive) {
-    return sendError(res, 400, "page_from_inclusive cannot be greater than page_to_inclusive");
-  }
+  const data = validateBody(UpdateDocumentSchema, req, res);
+  if (!data) return;
 
   try {
     const existing = await queryDb(
@@ -128,16 +128,20 @@ router.put("/:id", async (req: Request, res: Response) => {
       return sendError(res, 404, "Document not found");
     }
 
-    const current = existing.recordset[0];
-    const finalServiceId = service_id !== undefined ? service_id : current.service_id;
-    const finalSubmodule = service_submodule !== undefined ? service_submodule : current.service_submodule;
-    const finalBlobDirectory = blob_directory !== undefined ? blob_directory : current.blob_directory;
-    const finalPageFrom = page_from_inclusive !== undefined ? page_from_inclusive : current.page_from_inclusive;
-    const finalPageTo = page_to_inclusive !== undefined ? page_to_inclusive : current.page_to_inclusive;
-    let finalPageSkip = current.page_to_skip;
-    if (page_to_skip !== undefined) finalPageSkip = normalizePageToSkip(page_to_skip);
+    const cur = existing.recordset[0];
+    const finalServiceId = data.service_id ?? cur.service_id;
+    const finalSubmodule = data.service_submodule ?? cur.service_submodule;
+    const finalBlobDir = data.blob_directory ?? cur.blob_directory;
+    const finalPageFrom = data.page_from_inclusive !== undefined ? data.page_from_inclusive : cur.page_from_inclusive;
+    const finalPageTo = data.page_to_inclusive !== undefined ? data.page_to_inclusive : cur.page_to_inclusive;
+    const finalPageSkip =
+      data.page_to_skip !== undefined ? toPageSkipJson(data.page_to_skip) : cur.page_to_skip;
 
-    if (service_id !== undefined && service_id !== current.service_id) {
+    if (finalPageFrom != null && finalPageTo != null && finalPageFrom > finalPageTo) {
+      return sendError(res, 400, "page_from_inclusive cannot be greater than page_to_inclusive");
+    }
+
+    if (data.service_id !== undefined && data.service_id !== cur.service_id) {
       const svc = await queryDb(
         `SELECT 1 FROM knowledge.services WHERE service_id = ? AND deleted_date IS NULL`,
         [finalServiceId]
@@ -153,7 +157,7 @@ router.put("/:id", async (req: Request, res: Response) => {
          AND ISNULL(page_from_inclusive, -1) = ISNULL(?, -1)
          AND ISNULL(page_to_inclusive, -1) = ISNULL(?, -1)
          AND deleted_date IS NULL AND document_id <> ?`,
-      [finalServiceId, finalSubmodule, finalBlobDirectory, finalPageFrom, finalPageTo, id]
+      [finalServiceId, finalSubmodule, finalBlobDir, finalPageFrom, finalPageTo, id]
     );
     if (dup.recordset.length > 0) {
       return sendError(res, 409, "Duplicate document mapping exists");
@@ -164,13 +168,10 @@ router.put("/:id", async (req: Request, res: Response) => {
        SET service_id = ?, service_submodule = ?, blob_directory = ?,
            page_from_inclusive = ?, page_to_inclusive = ?, page_to_skip = ?
        WHERE document_id = ?`,
-      [finalServiceId, finalSubmodule, finalBlobDirectory, finalPageFrom, finalPageTo, finalPageSkip, id]
+      [finalServiceId, finalSubmodule, finalBlobDir, finalPageFrom, finalPageTo, finalPageSkip, id]
     );
     res.json({ success: true });
   } catch (err) {
-    if ((err as Error).message.includes("page_to_skip")) {
-      return sendError(res, 400, (err as Error).message);
-    }
     sendError(res, 500, "Failed to update document", (err as Error).message);
   }
 });
